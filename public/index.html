@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TikTok Live Snake Game</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Control Panel -->
+    <div id="control-panel">
+      <div id="brand">🐍 TikTok Live Snake</div>
+      <div id="connect-form">
+        <input
+          id="username-input"
+          type="text"
+          placeholder="@tiktok_username"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="connect-btn">Kết nối</button>
+        <button id="disconnect-btn" disabled>Ngắt</button>
+      </div>
+      <div id="connection-status">
+        <span id="status-dot" class="dot dot-gray"></span>
+        <span id="status-text">Chưa kết nối</span>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="main-content">
+
+      <!-- Game Area -->
+      <div id="game-area">
+        <canvas id="gameCanvas" width="600" height="600"></canvas>
+
+        <!-- Gift feed overlay -->
+        <div id="gift-feed"></div>
+
+        <!-- Death overlay -->
+        <div id="death-overlay">
+          <div id="death-content">
+            <div id="death-title">LOSS</div>
+            <div id="death-countdown">5</div>
+            <div id="death-subtitle">Tiếp tục sau...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Side Panel -->
+      <div id="side-panel">
+
+        <div id="score-panel">
+          <div class="stat-card">
+            <div class="stat-value" id="score">0</div>
+            <div class="stat-label">Điểm</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="snake-length">3</div>
+            <div class="stat-label">Độ dài</div>
+          </div>
+          <div class="stat-card highlight">
+            <div class="stat-value" id="apple-queue">0</div>
+            <div class="stat-label">Táo chờ</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="total-gifts">0</div>
+            <div class="stat-label">Tổng quà</div>
+          </div>
+        </div>
+
+        <div id="ai-status">
+          <div id="ai-label">🤖 AI đang chạy</div>
+          <div id="ai-info"></div>
+        </div>
+
+        <div id="test-controls">
+          <div class="test-label">Kiểm tra (Dev)</div>
+          <button id="test-gift-btn" class="test-btn">🎁 Giả lập quà</button>
+          <button id="test-multi-btn" class="test-btn">🎁×5 Giả lập x5</button>
+        </div>
+
+        <div id="chat-log">
+          <div class="chat-label">Chat TikTok</div>
+          <div id="chat-messages"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

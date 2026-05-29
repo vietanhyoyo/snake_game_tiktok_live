@@ -1,0 +1,16 @@
+{
+  "name": "tiktoklive-snake",
+  "version": "1.0.0",
+  "description": "TikTok Live Snake Game with AI - gifts spawn apples",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "tiktok-live-connector": "2.1.1-beta1",
+    "socket.io": "^4.8.3",
+    "express": "^5.2.1"
+  }
+}
