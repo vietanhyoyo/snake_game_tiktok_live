@@ -1,170 +1,282 @@
-# TikTok Live Snake Game — AI Context
+# TikTok Live Snake Game - Agent Context
 
-## Cách chạy
+Tài liệu này là context kỹ thuật cho AI/coding agent khi làm việc trong repo.
+
+## Chạy Project
 
 ```bash
-npm start          # http://localhost:3000
-npm run dev        # node --watch (auto-reload)
+npm install
+npm start        # http://localhost:3000
+npm run dev      # node --watch server.js
 ```
 
-Test không cần live stream — nhấn phím `1` (1 quà) hoặc `2` (5 quà) trên browser, hoặc:
+Test gift không cần livestream:
+
 ```bash
-curl -X POST localhost:3000/test-gift \
+curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
   -d '{"count": 3, "giftName": "Rose"}'
 ```
 
-## Kiến trúc tổng quan
+Trong browser:
 
-```
+- `1`: giả lập 1 gift.
+- `2`: giả lập 5 gift.
+
+## Kiến Trúc
+
+```text
 TikTok Live Webcast
-      │ (WebSocket nội bộ TikTok)
-      ▼
-server.js  ──  tiktok-live-connector
-      │ (Socket.io)
-      ▼
-Browser: public/game.js + Canvas
+      |
+      v
+server.js
+  - Express
+  - Socket.io
+  - tiktok-live-connector
+      |
+      v
+public/game.js
+  - Canvas game loop
+  - Snake AI
+  - Socket.io client
 ```
 
-TikTok **không cho kết nối từ browser** (CORS). Server Node.js là cầu nối bắt buộc.  
-`tiktok-live-connector` là thư viện reverse-engineered — không cần credentials, chỉ cần `@username` đang live.
+TikTok Live không kết nối trực tiếp từ browser do CORS. `server.js` là backend relay bắt buộc.
 
-## Map file
+## File Map
 
 | File | Vai trò |
 |---|---|
-| `server.js` | Express + Socket.io + TikTok connector. Toàn bộ logic TikTok ở đây. |
-| `public/game.js` | Game engine, AI A*, Socket.io client. Chạy hoàn toàn trên browser. |
-| `public/index.html` | Layout HTML. IDs quan trọng: `gameCanvas`, `gift-feed`, `game-column`, `connect-btn`, `username-input`. Lucide icons CDN được load ở đây. |
-| `public/style.css` | Dark theme. Layout luôn dọc, `max-width: 480px`. Gift card dùng class toggle `gift-card--visible` / `gift-card--hiding`. |
+| `server.js` | Express static server, REST API, Socket.io relay, TikTok connector. |
+| `public/index.html` | Layout chính, canvas game, result overlay, fireworks canvas. |
+| `public/style.css` | Dark UI, layout mobile-first, result overlay, win/fireworks styles. |
+| `public/game.js` | Game state, render, AI, socket client, gift/chat UI. |
+| `AI_ALGORITHM.md` | Tài liệu chi tiết về AI nhiều phase. |
+| `README.md` | Tài liệu user-facing. |
 
-## Constants trong `game.js`
-
-```js
-GRID_SIZE = 16              // lưới 16×16 ô
-CELL_SIZE                   // động: min(28, max(18, floor((min(innerWidth,460)-16)/16)))
-                            // phone 390px → 23px/ô, canvas ~368px
-CANVAS_SIZE = GRID_SIZE * CELL_SIZE
-BASE_TICK_MS = 60           // tick mỗi 60ms
-MAX_APPLES = floor(16*16*0.4) = 102  // tối đa 40% diện tích lưới
-GIFT_NOTIFICATION_MS = 1800 // gift pill hiển thị 1.8s
-```
-
-## State chính trong `game.js`
+## Constants Quan Trọng Trong `public/game.js`
 
 ```js
-snake          // [{x,y}, ...] — index 0 là đầu
-snakeDirection // {x,y} — vector hướng hiện tại
-apples         // [{x,y,spawnTime}, ...] — táo trên sân (spawnTime dùng cho animation)
-appleQueue     // số táo chờ spawn (từ gift events chưa drain)
-score          // +10 mỗi táo ăn
-totalGifts     // tổng số quà từ đầu session
+const GRID_SIZE = 16;
+const BASE_TICK_MS = 60;
+const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4);
+const GIFT_NOTIFICATION_MS = 1800;
+
+const RANDOM_MOVE_UNTIL_LENGTH = 50;
+const SHORT_MODE_RANDOMNESS = 0.02;
+const RANDOM_TOP_CANDIDATES = 2;
+const SERPENTINE_WIN_LENGTH = 160;
+const SERPENTINE_STRICT_LENGTH = 220;
 ```
 
-## HTML structure (quan trọng)
+Ý nghĩa:
 
+- `GRID_SIZE`: lưới 16x16, tổng 256 ô.
+- `BASE_TICK_MS`: tốc độ game loop, thấp hơn là nhanh hơn.
+- `MAX_APPLES`: giới hạn số táo trên sân, hiện là 40% diện tích lưới.
+- `RANDOM_MOVE_UNTIL_LENGTH`: dưới ngưỡng này dùng short mode.
+- `SHORT_MODE_RANDOMNESS`: xác suất lệch khỏi hướng tốt trong short mode.
+- `SERPENTINE_WIN_LENGTH`: bật serpentine win mode.
+- `SERPENTINE_STRICT_LENGTH`: từ đây ưu tiên strict serpentine để full map.
+
+## Game State Chính
+
+```js
+snake                 // mảng segment, index 0 là đầu
+snakeDirection        // vector {x, y}
+apples                // táo đang có trên sân, có spawnTime để animate
+appleQueue            // táo chờ spawn từ gift events
+score                 // +10 mỗi táo
+totalGifts            // tổng repeatCount đã nhận
+gameLoopInterval      // interval tick
+resultCountdownTimer  // timer cho WIN/LOSS overlay
+fireworksAnimationId  // requestAnimationFrame id cho pháo bông
+useSerpentineWinMode  // đã chuyển sang serpentine win mode hay chưa
 ```
+
+## HTML Structure Quan Trọng
+
+```text
 #app
-  #control-panel          ← brand + input + icon buttons + status
+  #control-panel
+    #brand
+    #connect-form
+      #username-input
+      #connect-btn
+      #disconnect-btn
+    #connection-status
   #main-content
-    #game-column          ← canvas column (flex column)
-      #game-area          ← position:relative, chứa canvas + death overlay
+    #game-column
+      #game-area
         #gameCanvas
         #death-overlay
-      #gift-feed          ← bên dưới canvas, KHÔNG overlay
+          #fireworksCanvas
+          #death-content
+            #death-title
+            #death-countdown
+            #death-subtitle
+      #gift-feed
     #side-panel
-      #score-panel        ← 4 stat cards (Điểm, Độ dài, Táo sân, Tổng quà)
+      #score-panel
       #chat-log
 ```
 
-`#gift-feed` đã được chuyển ra **ngoài** `#game-area` để không đè lên canvas.
+`#death-overlay` dùng chung cho cả LOSS và WIN. Khi win, overlay có class `win`, bật `#fireworksCanvas`.
 
-## Socket.io events
+## Socket.io Events
 
-### Server → Client
+### Server -> Client
+
 | Event | Payload |
 |---|---|
-| `tiktok:status` | `{connected, username}` — emit ngay khi browser kết nối |
+| `tiktok:status` | `{connected, username}` |
 | `tiktok:connected` | `{username}` |
-| `tiktok:disconnected` | `{reason: 'manual' \| 'stream_ended'}` |
+| `tiktok:disconnected` | `{reason}` |
 | `tiktok:error` | `{message}` |
 | `tiktok:gift` | `{uniqueId, nickname, giftName, giftPictureUrl, diamondCount, repeatCount, appleCount, timestamp}` |
 | `tiktok:chat` | `{uniqueId, nickname, comment, timestamp}` |
 
-### Client → Server (REST)
-| Endpoint | Body |
+### REST
+
+| Endpoint | Mô tả |
 |---|---|
-| `POST /connect` | `{username}` |
-| `POST /disconnect` | — |
-| `GET /status` | — |
-| `POST /test-gift` | `{count?, giftName?}` |
+| `POST /connect` | Kết nối TikTok Live theo username. |
+| `POST /disconnect` | Ngắt kết nối hiện tại. |
+| `GET /status` | Kiểm tra trạng thái kết nối. |
+| `POST /test-gift` | Giả lập gift để test local. |
 
-## Những quyết định thiết kế quan trọng
+## TikTok Gift Handling
 
-### `repeatEnd === true` trong gift handler
-TikTok gửi events liên tục **trong khi** streak đang diễn ra (rose x1, x2, x3…) với `repeatEnd: false`. Chỉ event cuối cùng có `repeatEnd: true` và `repeatCount` chính xác. Nếu xử lý tất cả events sẽ bị đếm trùng lặp.
+Trong `server.js`, gift chỉ được xử lý khi:
 
-### Xuyên tường (wall wrap)
-Rắn đi xuyên tường — không chết vì tường. Toàn bộ pathfinding dùng modulo thay vì bounds check:
-- `newHead` trong `tick()`: `x = (x + GRID_SIZE) % GRID_SIZE`
-- `astar()` neighbors: `(current.x + 1) % GRID_SIZE`, v.v.
-- `floodFill()` neighbors: tương tự
-- `getSurvivalDirection()`: tính `next` bằng modulo
-- `manhattan()`: wrapped distance — `min(dx, GRID_SIZE-dx) + min(dy, GRID_SIZE-dy)`
+```js
+data.repeatEnd
+```
 
-### Self-collision không gây chết
-Khi rắn sắp cắn thân mình (`isBodyCollision`):
-- Gọi `getSurvivalDirection` để tìm hướng thoát tốt nhất.
-- Nếu có lối thoát: đổi hướng, tiếp tục đi — **không chết**.
-- Nếu **mọi hướng đều bị thân chặn**: `handleSoftReset()`.
-- Không còn biến `consecutiveCollisions`.
+Lý do: TikTok emit nhiều event khi streak đang chạy. Chỉ event cuối có `repeatEnd: true` và `repeatCount` chính xác. Bỏ điều kiện này sẽ đếm trùng gift.
 
-### Loại tail cuối trong A* obstacles
-`astar()` dùng `snakeBody.slice(0, -1)` làm obstacles — loại trừ ô đuôi cuối vì tick tiếp theo đuôi sẽ rời đi. Nếu không làm vậy, AI từ chối đi sau đuôi dù thực ra an toàn.
+Payload gift dùng:
 
-### Lookahead safety (`isPathSafe`)
-Sau khi A* tìm được path, **mô phỏng toàn bộ path** để tính vị trí cuối rắn, rồi flood fill từ đó. Nếu `reachable < snake.length` → path bị từ chối. Cách này phát hiện bẫy sau nhiều bước mà check 1 bước không phát hiện được.
+```js
+appleCount: data.repeatCount
+```
 
-### "Chase tail" fallback
-Khi path tới táo bị `isPathSafe` từ chối → AI tìm đường tới đuôi. Đuôi luôn di chuyển ra trước khi AI đến nơi → path này không bao giờ bị block thực sự — cách mở rộng không gian an toàn nhất khi bị kẹp.
+Client nhận `tiktok:gift` và:
 
-### Apple animation
-Mỗi apple có `spawnTime: Date.now()` khi spawn. Trong `render()`:
-- **Scale bounce**: `easeOutBack(age / 350ms)` — scale từ 0 lên hơi quá 1 rồi về 1.
-- **Ripple rings**: 3 vòng sáng đỏ lan toả ra ngoài, stagger 130ms mỗi vòng, tắt sau 600ms.
+```js
+appleQueue += data.appleCount;
+totalGifts += data.repeatCount;
+```
 
-### Apple queue
-`appleQueue += appleCount` khi gift đến. Mỗi tick drain tối đa `MAX_APPLES - apples.length` táo từ queue. Tạo hiệu ứng táo xuất hiện dần.
+## AI Hiện Tại
 
-### Gift notification
-Pill nhỏ (`border-radius: 20px`) bên dưới canvas. Chỉ hiển thị **1 card** tại một thời điểm (card mới xóa card cũ ngay). Chỉ hiện tên người tặng + số táo (`+N 🍎`), không có ảnh quà.
+Chi tiết đầy đủ nằm ở `AI_ALGORITHM.md`.
 
-### UI — không có Dev controls trong giao diện
-Các nút test đã bị xóa khỏi UI. Thay bằng keyboard shortcuts: `1` = test 1 quà, `2` = test 5 quà.
+Tóm tắt:
 
-### Icon buttons (Lucide)
-Nút Kết nối dùng icon `plug`, nút Ngắt dùng icon `unplug` từ `https://unpkg.com/lucide@latest`. `lucide.createIcons()` được gọi ở cuối `game.js`.
+1. **Short mode** khi `snake.length < RANDOM_MOVE_UNTIL_LENGTH`
+   - Ưu tiên A* tới táo.
+   - Nếu không có đường, chọn candidate gần táo.
+   - Random rất nhẹ theo `SHORT_MODE_RANDOMNESS`.
 
-## Những gì KHÔNG nên thay đổi mà không hiểu rõ
+2. **Hilbert mode**
+   - Dùng Hilbert curve làm cycle an toàn.
+   - Cho phép shortcut/A* nếu không phá khoảng an toàn giữa đầu và đuôi.
 
-- Logic `repeatEnd` trong `attachTikTokListeners()` — thay đổi sẽ gây đếm quà trùng
-- `snakeBody.slice(0, -1)` trong `astar()` — bỏ sẽ làm AI từ chối đường đi hợp lệ
-- `isPathSafe` mô phỏng **toàn path** chứ không phải 1 bước — đây là chủ ý
-- "Chase tail" fallback trong `getAIDirection` — tầng phòng thủ thứ 2, không được bỏ
-- `handleSoftReset()` giữ `apples` nguyên — bỏ táo đi sẽ mất trạng thái game khi reset
-- `escapeHtml()` bao quanh mọi dữ liệu từ TikTok — bảo vệ XSS, không được bỏ
-- Modulo wrap trong tất cả pathfinding — phải nhất quán, đổi 1 chỗ sẽ làm AI sai
+3. **Serpentine win mode** khi `snake.length >= SERPENTINE_WIN_LENGTH`
+   - Transition an toàn sang serpentine nếu thân chưa aligned.
+   - Playful serpentine trước `SERPENTINE_STRICT_LENGTH`.
+   - Strict serpentine từ `SERPENTINE_STRICT_LENGTH` để full map.
 
-## Bảo mật
+4. **Survival fallback**
+   - Nếu các phase chính không có hướng tốt, chọn hướng có flood-fill space lớn nhất.
 
-`protobufjs` (dep của `tiktok-live-connector`) có CVE đã biết, chưa có bản vá. Chấp nhận được vì đây là tool nội bộ chạy local. **Không deploy ra server công cộng.**
+## Safety Logic Quan Trọng
 
-Tất cả dữ liệu từ TikTok (nickname, giftName, comment) được `escapeHtml()` trước khi đưa vào DOM.
+### Wall Wrap
 
-## Gợi ý mở rộng
+Rắn xuyên tường. Mọi neighbor/pathfinding đều dùng modulo:
 
-- **Nhiều loại vật phẩm:** Thêm field `giftType` vào gift payload, render apple/star/bomb khác nhau tùy loại quà
-- **Điều chỉnh tốc độ:** Giảm `BASE_TICK_MS` khi `appleQueue > 10` để tạo urgency
-- **Leaderboard:** Lưu top scores trong server memory, expose qua `GET /leaderboard`
-- **Nhiều rắn:** Mỗi màu rắn đại diện một team viewer
-- **Phản hồi chat:** Parse `tiktok:chat` để trigger action (comment "faster" → tăng tốc)
+```js
+(x + GRID_SIZE) % GRID_SIZE
+```
+
+Không đổi một chỗ riêng lẻ nếu chưa cập nhật toàn bộ AI.
+
+### A* Obstacles
+
+`astar()` loại ô đuôi cuối khỏi obstacle:
+
+```js
+snakeBody.slice(0, -1)
+```
+
+Đuôi có thể rời đi tick sau, nên ô đó thường được phép đi vào.
+
+### `isPathSafe()`
+
+Mô phỏng toàn bộ path:
+
+- Check va chạm từng bước.
+- Mô phỏng growth khi ăn táo.
+- Kiểm tra còn đường về đuôi.
+- Flood-fill để đảm bảo còn đủ không gian.
+
+### `isCycleShortcutSafe()`
+
+Kiểm tra shortcut trên một cycle có vượt qua đuôi hoặc phá khoảng an toàn không.
+
+Được reuse cho:
+
+- Hilbert: `isHamiltonianShortcutSafe()`
+- Serpentine: `isSerpentineShortcutSafe()`
+
+### `getSerpentineTransitionDirection()`
+
+Khi đã bật serpentine nhưng thân chưa aligned, hàm này mô phỏng từng hướng bằng `simulateMove()` và kiểm tra bằng `isSimulatedMoveSafe()` trước khi chọn hướng.
+
+## Result Overlay
+
+LOSS:
+
+- `handleSoftReset()`
+- Dừng game loop.
+- Hiện overlay `LOSS`.
+- Countdown 5 giây.
+- Restart, giữ trạng thái táo hiện có.
+
+WIN:
+
+- Khi `snake.length >= GRID_SIZE * GRID_SIZE`.
+- `handleWin()`
+- Dừng game loop.
+- Hiện overlay `WIN`.
+- Countdown 10 giây.
+- Bật fireworks canvas.
+- Restart.
+
+## UI Và Render
+
+- Canvas chính: `#gameCanvas`.
+- Canvas pháo bông: `#fireworksCanvas`.
+- Táo có `spawnTime` để render bounce/ripple.
+- Gift feed chỉ hiển thị một card mới nhất, nằm dưới canvas.
+- Chat prepend message mới, giữ tối đa 30 message.
+- Dữ liệu TikTok đưa vào DOM phải qua `escapeHtml()`.
+
+## Những Gì Không Nên Đổi Nhẹ Tay
+
+- `repeatEnd` trong gift handler.
+- Modulo wrap trong pathfinding.
+- `snakeBody.slice(0, -1)` trong A* và collision/survival.
+- `isPathSafe()` mô phỏng toàn path.
+- `isCycleShortcutSafe()` cho Hilbert/Serpentine shortcut.
+- `getSerpentineTransitionDirection()` trong phase chuyển sang win mode.
+- `escapeHtml()` với nickname/comment/gift data.
+
+## Bảo Mật
+
+- `tiktok-live-connector` là thư viện reverse-engineered, không chính thức.
+- Chỉ nên chạy local hoặc trong môi trường kiểm soát.
+- Không public service ra internet nếu chưa audit dependency và input handling.
+

@@ -7,6 +7,11 @@ const CANVAS_SIZE = GRID_SIZE * CELL_SIZE;
 const BASE_TICK_MS = 60;
 const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% diện tích lưới
 const GIFT_NOTIFICATION_MS = 1800;
+const RANDOM_MOVE_UNTIL_LENGTH = 50;
+const SHORT_MODE_RANDOMNESS = 0.02;
+const RANDOM_TOP_CANDIDATES = 2;
+const SERPENTINE_WIN_LENGTH = 160;
+const SERPENTINE_STRICT_LENGTH = 220;
 
 // ─── Game State ───────────────────────────────────────────────────────────────
 let snake = [];
@@ -16,24 +21,34 @@ let appleQueue = 0;
 let score = 0;
 let totalGifts = 0;
 let gameLoopInterval = null;
+let resultCountdownTimer = null;
+let fireworksAnimationId = null;
+let fireworks = [];
+let useSerpentineWinMode = false;
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
 canvas.width = CANVAS_SIZE;
 canvas.height = CANVAS_SIZE;
 const ctx = canvas.getContext('2d');
+const fireworksCanvas = document.getElementById('fireworksCanvas');
+fireworksCanvas.width = CANVAS_SIZE;
+fireworksCanvas.height = CANVAS_SIZE;
+const fireworksCtx = fireworksCanvas.getContext('2d');
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 function initGame() {
+  clearResultState();
   snake = [
-    { x: 8, y: 7 },
-    { x: 7, y: 7 },
-    { x: 6, y: 7 }
+    { x: 9, y: 9 },
+    { x: 8, y: 9 },
+    { x: 8, y: 8 }
   ];
-  snakeDirection = { x: 1, y: 0 };
+  snakeDirection = { x: 0, y: -1 };
   apples = [];
   appleQueue = 0;
   score = 0;
+  useSerpentineWinMode = false;
   spawnApple();
   if (gameLoopInterval) clearInterval(gameLoopInterval);
   gameLoopInterval = setInterval(tick, BASE_TICK_MS);
@@ -82,6 +97,12 @@ function tick() {
   if (ateApple) {
     apples.splice(appleIndex, 1);
     score += 10;
+    if (snake.length >= GRID_SIZE * GRID_SIZE) {
+      render();
+      updateUI();
+      handleWin();
+      return;
+    }
     if (apples.length === 0 && appleQueue === 0) spawnApple();
   } else {
     snake.pop();
@@ -97,45 +118,551 @@ function handleSoftReset() {
     gameLoopInterval = null;
   }
   render();
-  startDeathCountdown(5);
+  startResultCountdown('loss', 5);
 }
 
-function startDeathCountdown(seconds) {
+function handleWin() {
+  if (gameLoopInterval) {
+    clearInterval(gameLoopInterval);
+    gameLoopInterval = null;
+  }
+  startResultCountdown('win', 10);
+}
+
+function startResultCountdown(result, seconds) {
   const overlay = document.getElementById('death-overlay');
+  const titleEl = document.getElementById('death-title');
   const countdownEl = document.getElementById('death-countdown');
-  overlay.classList.add('visible');
+  const subtitleEl = document.getElementById('death-subtitle');
+
+  if (resultCountdownTimer) clearInterval(resultCountdownTimer);
+
+  overlay.classList.toggle('win', result === 'win');
+  titleEl.textContent = result === 'win' ? 'WIN' : 'LOSS';
   countdownEl.textContent = seconds;
+  subtitleEl.textContent = result === 'win' ? 'Chơi lại sau...' : 'Tiếp tục sau...';
+  overlay.classList.add('visible');
+  if (result === 'win') startFireworks();
+  else stopFireworks();
 
   let remaining = seconds;
-  const timer = setInterval(() => {
+  resultCountdownTimer = setInterval(() => {
     remaining--;
     countdownEl.textContent = remaining;
     if (remaining <= 0) {
-      clearInterval(timer);
-      overlay.classList.remove('visible');
+      clearResultState();
       restartGame();
     }
   }, 1000);
 }
 
 function restartGame() {
+  clearResultState();
   snake = [
-    { x: 8, y: 7 },
-    { x: 7, y: 7 },
-    { x: 6, y: 7 }
+    { x: 9, y: 9 },
+    { x: 8, y: 9 },
+    { x: 8, y: 8 }
   ];
-  snakeDirection = { x: 1, y: 0 };
+  snakeDirection = { x: 0, y: -1 };
+  useSerpentineWinMode = false;
+  if (apples.length === 0) spawnApple();
   render();
   updateUI();
   gameLoopInterval = setInterval(tick, BASE_TICK_MS);
+}
+
+function clearResultState() {
+  const overlay = document.getElementById('death-overlay');
+  if (resultCountdownTimer) {
+    clearInterval(resultCountdownTimer);
+    resultCountdownTimer = null;
+  }
+  overlay.classList.remove('visible', 'win');
+  stopFireworks();
+}
+
+function startFireworks() {
+  stopFireworks();
+  fireworks = [];
+  spawnFirework(CANVAS_SIZE * 0.5, CANVAS_SIZE * 0.35);
+  fireworksAnimationId = requestAnimationFrame(animateFireworks);
+}
+
+function stopFireworks() {
+  if (fireworksAnimationId) {
+    cancelAnimationFrame(fireworksAnimationId);
+    fireworksAnimationId = null;
+  }
+  fireworks = [];
+  fireworksCtx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+}
+
+function spawnFirework(x = Math.random() * CANVAS_SIZE, y = Math.random() * CANVAS_SIZE * 0.55) {
+  const colors = ['#ffe66d', '#00ff88', '#ff4466', '#7eb8ff', '#ffffff'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  const count = 34 + Math.floor(Math.random() * 18);
+
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count;
+    const speed = 1.4 + Math.random() * 2.6;
+    fireworks.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 46 + Math.random() * 24,
+      maxLife: 70,
+      color
+    });
+  }
+}
+
+function animateFireworks() {
+  fireworksCtx.fillStyle = 'rgba(2, 8, 18, 0.18)';
+  fireworksCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+  if (Math.random() < 0.08) {
+    spawnFirework(
+      CANVAS_SIZE * (0.18 + Math.random() * 0.64),
+      CANVAS_SIZE * (0.16 + Math.random() * 0.42)
+    );
+  }
+
+  for (let i = fireworks.length - 1; i >= 0; i--) {
+    const p = fireworks[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.035;
+    p.vx *= 0.99;
+    p.vy *= 0.99;
+    p.life--;
+
+    const alpha = Math.max(0, p.life / p.maxLife);
+    fireworksCtx.globalAlpha = alpha;
+    fireworksCtx.fillStyle = p.color;
+    fireworksCtx.beginPath();
+    fireworksCtx.arc(p.x, p.y, 2.1, 0, Math.PI * 2);
+    fireworksCtx.fill();
+
+    if (p.life <= 0) fireworks.splice(i, 1);
+  }
+  fireworksCtx.globalAlpha = 1;
+
+  fireworksAnimationId = requestAnimationFrame(animateFireworks);
 }
 
 function isOutOfBounds(cell) {
   return cell.x < 0 || cell.x >= GRID_SIZE || cell.y < 0 || cell.y >= GRID_SIZE;
 }
 
-function isBodyCollision(cell) {
-  return snake.some(seg => seg.x === cell.x && seg.y === cell.y);
+function cellKey(cell) {
+  return `${cell.x},${cell.y}`;
+}
+
+function sameCell(a, b) {
+  return a.x === b.x && a.y === b.y;
+}
+
+function directionTo(from, to) {
+  let dx = to.x - from.x;
+  let dy = to.y - from.y;
+
+  if (dx === GRID_SIZE - 1) dx = -1;
+  else if (dx === -(GRID_SIZE - 1)) dx = 1;
+
+  if (dy === GRID_SIZE - 1) dy = -1;
+  else if (dy === -(GRID_SIZE - 1)) dy = 1;
+
+  return { x: dx, y: dy };
+}
+
+function getNeighbors(cell) {
+  return [
+    { x: (cell.x + 1) % GRID_SIZE,             y: cell.y },
+    { x: (cell.x - 1 + GRID_SIZE) % GRID_SIZE, y: cell.y },
+    { x: cell.x, y: (cell.y + 1) % GRID_SIZE },
+    { x: cell.x, y: (cell.y - 1 + GRID_SIZE) % GRID_SIZE }
+  ];
+}
+
+function isBodyCollision(cell, snakeBody = snake, includeTail = false) {
+  const body = includeTail ? snakeBody : snakeBody.slice(0, -1);
+  return body.some(seg => sameCell(seg, cell));
+}
+
+function rotateHilbertQuadrant(size, cell, rx, ry) {
+  if (ry !== 0) return cell;
+  const rotated = { ...cell };
+  if (rx === 1) {
+    rotated.x = size - 1 - rotated.x;
+    rotated.y = size - 1 - rotated.y;
+  }
+  return { x: rotated.y, y: rotated.x };
+}
+
+function getHamiltonianIndex(cell) {
+  let index = 0;
+  let current = { x: cell.x, y: cell.y };
+
+  for (let size = GRID_SIZE / 2; size > 0; size = Math.floor(size / 2)) {
+    const rx = (current.x & size) > 0 ? 1 : 0;
+    const ry = (current.y & size) > 0 ? 1 : 0;
+    index += size * size * ((3 * rx) ^ ry);
+    current = rotateHilbertQuadrant(size, current, rx, ry);
+  }
+
+  return index;
+}
+
+function getCellByHamiltonianIndex(index) {
+  const wrapped = (index + GRID_SIZE * GRID_SIZE) % (GRID_SIZE * GRID_SIZE);
+  let t = wrapped;
+  let cell = { x: 0, y: 0 };
+
+  for (let size = 1; size < GRID_SIZE; size *= 2) {
+    const rx = 1 & Math.floor(t / 2);
+    const ry = 1 & (t ^ rx);
+    cell = rotateHilbertQuadrant(size, cell, rx, ry);
+    cell.x += size * rx;
+    cell.y += size * ry;
+    t = Math.floor(t / 4);
+  }
+
+  return cell;
+}
+
+function getSerpentineIndex(cell) {
+  return cell.y % 2 === 0
+    ? cell.y * GRID_SIZE + cell.x
+    : cell.y * GRID_SIZE + (GRID_SIZE - 1 - cell.x);
+}
+
+function getCellBySerpentineIndex(index) {
+  const wrapped = (index + GRID_SIZE * GRID_SIZE) % (GRID_SIZE * GRID_SIZE);
+  const y = Math.floor(wrapped / GRID_SIZE);
+  const offset = wrapped % GRID_SIZE;
+  return {
+    x: y % 2 === 0 ? offset : GRID_SIZE - 1 - offset,
+    y
+  };
+}
+
+function cycleDistance(fromIndex, toIndex) {
+  const total = GRID_SIZE * GRID_SIZE;
+  return (toIndex - fromIndex + total) % total;
+}
+
+function getCycleDirection(getIndex, getCellByIndex) {
+  const head = snake[0];
+  const nextIndex = getIndex(head) + 1;
+  return directionTo(head, getCellByIndex(nextIndex));
+}
+
+function getHamiltonianDirection() {
+  return getCycleDirection(getHamiltonianIndex, getCellByHamiltonianIndex);
+}
+
+function getSerpentineDirection() {
+  return getCycleDirection(getSerpentineIndex, getCellBySerpentineIndex);
+}
+
+function isSnakeAlignedToCycle(getIndex) {
+  const total = GRID_SIZE * GRID_SIZE;
+  const headIndex = getIndex(snake[0]);
+  return snake.every((seg, index) => {
+    return getIndex(seg) === (headIndex - index + total) % total;
+  });
+}
+
+function isSnakeAlignedToHamiltonian() {
+  return isSnakeAlignedToCycle(getHamiltonianIndex);
+}
+
+function isSnakeAlignedToSerpentine() {
+  return isSnakeAlignedToCycle(getSerpentineIndex);
+}
+
+function isCycleShortcutSafe(path, snakeBody, targetApple, getIndex) {
+  const headIndex = getIndex(snakeBody[0]);
+  const tailIndex = getIndex(snakeBody[snakeBody.length - 1]);
+  const appleIndex = getIndex(targetApple);
+  const headToTail = cycleDistance(headIndex, tailIndex);
+  const headToApple = cycleDistance(headIndex, appleIndex);
+
+  if (headToApple === 0 || headToApple >= headToTail) return false;
+  if (headToTail - headToApple <= snakeBody.length + 2) return false;
+
+  let previous = headIndex;
+  for (let i = 1; i < path.length; i++) {
+    const current = getIndex(path[i]);
+    const step = cycleDistance(previous, current);
+    if (step === 0 || step >= headToTail) return false;
+    if (cycleDistance(headIndex, current) >= headToTail) return false;
+    previous = current;
+  }
+
+  return true;
+}
+
+function isHamiltonianShortcutSafe(path, snakeBody, targetApple) {
+  return isCycleShortcutSafe(path, snakeBody, targetApple, getHamiltonianIndex);
+}
+
+function isSerpentineShortcutSafe(path, snakeBody, targetApple) {
+  return isCycleShortcutSafe(path, snakeBody, targetApple, getSerpentineIndex);
+}
+
+function getAppleCycleDistance(fromCell, getIndex = getHamiltonianIndex) {
+  const fromIndex = getIndex(fromCell);
+  return Math.min(...apples.map(apple => cycleDistance(fromIndex, getIndex(apple))));
+}
+
+function getNearestAppleDistance(fromCell) {
+  if (apples.length === 0) return 0;
+  return Math.min(...apples.map(apple => manhattan(fromCell, apple)));
+}
+
+function getCycleMoveCandidates(getIndex = getHamiltonianIndex) {
+  const head = snake[0];
+  const headIndex = getIndex(head);
+  const tailIndex = getIndex(snake[snake.length - 1]);
+  const headToTail = cycleDistance(headIndex, tailIndex);
+  const bodySet = new Set(snake.slice(0, -1).map(cellKey));
+  const dirs = [
+    { x: 1, y: 0 }, { x: -1, y: 0 },
+    { x: 0, y: 1 }, { x: 0, y: -1 }
+  ];
+
+  const candidates = [];
+  for (const dir of dirs) {
+    if (dir.x === -snakeDirection.x && dir.y === -snakeDirection.y) continue;
+
+    const next = {
+      x: (head.x + dir.x + GRID_SIZE) % GRID_SIZE,
+      y: (head.y + dir.y + GRID_SIZE) % GRID_SIZE
+    };
+    if (bodySet.has(cellKey(next))) continue;
+
+    const advance = cycleDistance(headIndex, getIndex(next));
+    if (advance === 0) continue;
+
+    const eats = apples.some(apple => sameCell(apple, next));
+    const reserve = eats ? snake.length + 3 : snake.length + 1;
+    if (advance >= headToTail - reserve) continue;
+
+    const appleDistance = apples.length > 0 ? getAppleCycleDistance(next, getIndex) : advance;
+    const visualAppleDistance = getNearestAppleDistance(next);
+    const turnPenalty = dir.x === snakeDirection.x && dir.y === snakeDirection.y ? 0 : 0.35;
+    const score = appleDistance * 4 + advance + (eats ? -1000 : 0);
+    const visualScore = visualAppleDistance * 8 + turnPenalty + (eats ? -1000 : 0);
+    candidates.push({ dir, next, score, visualScore, advance, eats });
+  }
+
+  return candidates.sort((a, b) => a.score - b.score || a.advance - b.advance);
+}
+
+function getHamiltonianMoveCandidates() {
+  return getCycleMoveCandidates(getHamiltonianIndex);
+}
+
+function getSerpentineMoveCandidates() {
+  return getCycleMoveCandidates(getSerpentineIndex);
+}
+
+function getHamiltonianShortcutDirection() {
+  const best = getHamiltonianMoveCandidates()[0];
+  return best?.dir ?? null;
+}
+
+function getSerpentineShortcutDirection() {
+  const best = getSerpentineMoveCandidates()[0];
+  return best?.dir ?? null;
+}
+
+function getShortModeAppleDirection(candidates = null) {
+  if (apples.length === 0) return null;
+
+  const head = snake[0];
+  const sortedApples = [...apples].sort((a, b) => manhattan(a, head) - manhattan(b, head));
+  for (const apple of sortedApples) {
+    const path = astar(head, apple, snake);
+    if (!path || path.length < 2) continue;
+
+    const dir = directionTo(head, path[1]);
+    if (!candidates) return dir;
+
+    const candidate = candidates.find(item => item.dir.x === dir.x && item.dir.y === dir.y);
+    if (candidate) return candidate.dir;
+  }
+
+  return null;
+}
+
+function isShortPathSafe(path, snakeBody, targetApple) {
+  const targetKey = cellKey(targetApple);
+  let simSnake = snakeBody.map(seg => ({ ...seg }));
+
+  for (let i = 1; i < path.length; i++) {
+    const step = path[i];
+    const eats = cellKey(step) === targetKey;
+    simSnake.unshift(step);
+    if (!eats) simSnake.pop();
+  }
+
+  const obstacles = new Set(simSnake.slice(0, -1).map(cellKey));
+  const reachable = floodFill(simSnake[0], obstacles);
+  return reachable >= Math.max(16, simSnake.length + 6);
+}
+
+function getRandomizedShortSnakeDirection() {
+  const directAppleDir = getShortModeAppleDirection();
+  if (directAppleDir) return directAppleDir;
+
+  const candidates = getHamiltonianMoveCandidates()
+    .sort((a, b) => a.visualScore - b.visualScore || a.advance - b.advance);
+  if (candidates.length === 0) return null;
+
+  const appleMove = candidates.find(candidate => candidate.eats);
+  if (appleMove) return appleMove.dir;
+
+  const appleDir = getShortModeAppleDirection(candidates);
+  if (appleDir) return appleDir;
+
+  const bestTowardApple = candidates
+    .slice()
+    .sort((a, b) => getNearestAppleDistance(a.next) - getNearestAppleDistance(b.next) || a.advance - b.advance)[0];
+
+  if (Math.random() > SHORT_MODE_RANDOMNESS) return bestTowardApple.dir;
+
+  const pool = candidates.slice(0, Math.min(RANDOM_TOP_CANDIDATES, candidates.length));
+  const bestScore = Math.min(...pool.map(candidate => candidate.visualScore));
+  const totalWeight = pool.reduce((sum, candidate) => {
+    return sum + 1 / Math.max(1, candidate.visualScore - bestScore + 1);
+  }, 0);
+  let roll = Math.random() * totalWeight;
+
+  for (const candidate of pool) {
+    roll -= 1 / Math.max(1, candidate.visualScore - bestScore + 1);
+    if (roll <= 0) return candidate.dir;
+  }
+
+  return pool[pool.length - 1].dir;
+}
+
+function getAStarDirectionForCycle(isShortcutSafe) {
+  if (apples.length === 0) return null;
+
+  const head = snake[0];
+  const sorted = [...apples].sort((a, b) => manhattan(a, head) - manhattan(b, head));
+  let bestPath = null;
+  for (const apple of sorted) {
+    const path = astar(head, apple, snake);
+    if (!path || path.length < 2) continue;
+    if (isShortcutSafe(path, snake, apple)) {
+      if (!bestPath || path.length < bestPath.length) bestPath = path;
+    }
+  }
+
+  return bestPath ? directionTo(head, bestPath[1]) : null;
+}
+
+function getSafeAStarDirection() {
+  return getAStarDirectionForCycle((path, snakeBody, apple) => isPathSafe(path, snakeBody, apple));
+}
+
+function simulateMove(dir) {
+  const head = snake[0];
+  const next = {
+    x: (head.x + dir.x + GRID_SIZE) % GRID_SIZE,
+    y: (head.y + dir.y + GRID_SIZE) % GRID_SIZE
+  };
+  if (isBodyCollision(next)) return null;
+
+  const eats = apples.some(apple => sameCell(apple, next));
+  const simSnake = [next, ...snake.map(seg => ({ ...seg }))];
+  if (!eats) simSnake.pop();
+  return { next, simSnake, eats };
+}
+
+function isSimulatedMoveSafe(simulation) {
+  if (!simulation) return false;
+
+  const tail = simulation.simSnake[simulation.simSnake.length - 1];
+  const pathToTail = astar(simulation.next, tail, simulation.simSnake);
+  if (!pathToTail || pathToTail.length < 2) return false;
+
+  const obstacles = new Set(simulation.simSnake.slice(0, -1).map(cellKey));
+  const reachable = floodFill(simulation.next, obstacles);
+  return reachable >= Math.max(12, simulation.simSnake.length);
+}
+
+function getSerpentineTransitionDirection(strict = false) {
+  const preferred = getSerpentineDirection();
+  const dirs = [
+    { x: 1, y: 0 }, { x: -1, y: 0 },
+    { x: 0, y: 1 }, { x: 0, y: -1 }
+  ].filter(dir => !(dir.x === -snakeDirection.x && dir.y === -snakeDirection.y));
+
+  const headIndex = getSerpentineIndex(snake[0]);
+  let best = null;
+
+  for (const dir of dirs) {
+    const simulation = simulateMove(dir);
+    if (!isSimulatedMoveSafe(simulation)) continue;
+
+    const advance = cycleDistance(headIndex, getSerpentineIndex(simulation.next));
+    if (advance === 0) continue;
+
+    const preferredBonus = dir.x === preferred.x && dir.y === preferred.y
+      ? (strict ? -1000 : -3)
+      : 0;
+    const appleBonus = simulation.eats ? -250 : 0;
+    const appleDistance = getNearestAppleDistance(simulation.next);
+    const score = strict
+      ? preferredBonus + appleBonus + advance + appleDistance * 0.5
+      : preferredBonus + appleBonus + appleDistance * 7 + advance * 0.15 + Math.random() * 2;
+
+    if (!best || score < best.score) best = { dir, score };
+  }
+
+  return best?.dir ?? getSurvivalDirection(snake[0], snake, snakeDirection);
+}
+
+function getSerpentineWinDirection() {
+  const head = snake[0];
+  const strict = snake.length >= SERPENTINE_STRICT_LENGTH;
+
+  if (!isSnakeAlignedToSerpentine()) {
+    return getSerpentineTransitionDirection(strict);
+  }
+
+  if (!strict) {
+    const astarDir = getAStarDirectionForCycle(isSerpentineShortcutSafe);
+    if (astarDir) return astarDir;
+
+    const candidates = getSerpentineMoveCandidates()
+      .sort((a, b) => a.visualScore - b.visualScore || a.advance - b.advance);
+    if (candidates.length > 0) {
+      if (Math.random() > 0.12) return candidates[0].dir;
+      const pool = candidates.slice(0, Math.min(3, candidates.length));
+      return pool[Math.floor(Math.random() * pool.length)].dir;
+    }
+  }
+
+  const shortcutDir = getSerpentineShortcutDirection();
+  if (shortcutDir) return shortcutDir;
+
+  const astarDir = getAStarDirectionForCycle(isSerpentineShortcutSafe);
+  if (astarDir) return astarDir;
+
+  const cycleDir = getSerpentineDirection();
+  const cycleHead = {
+    x: (head.x + cycleDir.x + GRID_SIZE) % GRID_SIZE,
+    y: (head.y + cycleDir.y + GRID_SIZE) % GRID_SIZE
+  };
+  if (!isBodyCollision(cycleHead)) return cycleDir;
+
+  return getSurvivalDirection(head, snake, snakeDirection);
 }
 
 // ─── Apple Spawning ───────────────────────────────────────────────────────────
@@ -172,7 +699,7 @@ function manhattan(a, b) {
 function astar(start, goal, snakeBody) {
   // Exclude last tail segment — it vacates next tick
   const obstacles = new Set(
-    snakeBody.slice(0, -1).map(s => `${s.x},${s.y}`)
+    snakeBody.slice(0, -1).map(cellKey)
   );
 
   const openSet = [];
@@ -195,12 +722,7 @@ function astar(start, goal, snakeBody) {
 
     closedSet.add(key);
 
-    const neighbors = [
-      { x: (current.x + 1) % GRID_SIZE,              y: current.y },
-      { x: (current.x - 1 + GRID_SIZE) % GRID_SIZE,  y: current.y },
-      { x: current.x, y: (current.y + 1) % GRID_SIZE },
-      { x: current.x, y: (current.y - 1 + GRID_SIZE) % GRID_SIZE }
-    ];
+    const neighbors = getNeighbors(current);
 
     for (const nb of neighbors) {
       const nbKey = `${nb.x},${nb.y}`;
@@ -228,21 +750,15 @@ function reconstructPath(cameFrom, end) {
 }
 
 function floodFill(startCell, obstacles) {
-  const visited = new Set([`${startCell.x},${startCell.y}`]);
+  const visited = new Set([cellKey(startCell)]);
   const queue = [startCell];
   let count = 0;
   while (queue.length > 0) {
     const cell = queue.shift();
     count++;
 
-    const neighbors = [
-      { x: (cell.x + 1) % GRID_SIZE,             y: cell.y },
-      { x: (cell.x - 1 + GRID_SIZE) % GRID_SIZE, y: cell.y },
-      { x: cell.x, y: (cell.y + 1) % GRID_SIZE },
-      { x: cell.x, y: (cell.y - 1 + GRID_SIZE) % GRID_SIZE }
-    ];
-    for (const n of neighbors) {
-      const k = `${n.x},${n.y}`;
+    for (const n of getNeighbors(cell)) {
+      const k = cellKey(n);
       if (!visited.has(k) && !obstacles.has(k)) {
         visited.add(k);
         queue.push(n);
@@ -255,12 +771,17 @@ function floodFill(startCell, obstacles) {
 // Simulate snake following a path to a specific apple (grows once when eating it),
 // then flood-fill from final head position to verify enough space remains.
 function isPathSafe(path, snakeBody, targetApple = null) {
-  const targetKey = targetApple ? `${targetApple.x},${targetApple.y}` : null;
+  const targetKey = targetApple ? cellKey(targetApple) : null;
   let simSnake = snakeBody.map(s => ({ ...s }));
   let growthPending = 0;
   for (let i = 1; i < path.length; i++) {
+    const step = path[i];
+    const willEat = targetKey && cellKey(step) === targetKey;
+    const blockedBody = willEat || growthPending > 0 ? simSnake : simSnake.slice(0, -1);
+    if (blockedBody.some(seg => sameCell(seg, step))) return false;
+
     simSnake.unshift(path[i]);
-    if (targetKey && `${path[i].x},${path[i].y}` === targetKey) {
+    if (willEat) {
       growthPending++;
     } else if (growthPending > 0) {
       growthPending--;
@@ -268,9 +789,15 @@ function isPathSafe(path, snakeBody, targetApple = null) {
       simSnake.pop();
     }
   }
-  const obstacles = new Set(simSnake.map(s => `${s.x},${s.y}`));
+  const tail = simSnake[simSnake.length - 1];
+  const pathToTail = astar(simSnake[0], tail, simSnake);
+  if (!pathToTail || pathToTail.length < 2) return false;
+
+  const obstacles = new Set(simSnake.slice(0, -1).map(cellKey));
   const reachable = floodFill(simSnake[0], obstacles);
-  return reachable >= simSnake.length;
+  const emptyCells = GRID_SIZE * GRID_SIZE - simSnake.length;
+  const minSpace = Math.min(emptyCells + 1, Math.max(8, simSnake.length));
+  return reachable >= minSpace;
 }
 
 function getSurvivalDirection(head, snakeBody, currentDir) {
@@ -279,7 +806,7 @@ function getSurvivalDirection(head, snakeBody, currentDir) {
     { x: 0, y: 1 }, { x: 0, y: -1 }
   ];
   const valid = dirs.filter(d => !(d.x === -currentDir.x && d.y === -currentDir.y));
-  const bodySet = new Set(snakeBody.map(s => `${s.x},${s.y}`));
+  const bodySet = new Set(snakeBody.slice(0, -1).map(cellKey));
 
   let bestDir = null;
   let bestScore = -1;
@@ -289,7 +816,7 @@ function getSurvivalDirection(head, snakeBody, currentDir) {
       x: (head.x + dir.x + GRID_SIZE) % GRID_SIZE,
       y: (head.y + dir.y + GRID_SIZE) % GRID_SIZE
     };
-    if (bodySet.has(`${next.x},${next.y}`)) continue;
+    if (bodySet.has(cellKey(next))) continue;
     const space = floodFill(next, bodySet);
     if (space > bestScore) {
       bestScore = space;
@@ -302,34 +829,42 @@ function getSurvivalDirection(head, snakeBody, currentDir) {
 function getAIDirection() {
   const head = snake[0];
 
-  // ── Tier 1: A* to safest apple ───────────────────────────────────────────
-  // Sort apples by distance so we try the nearest ones first.
-  // isPathSafe simulates only THIS apple's growth — not all 20 on the grid.
-  if (apples.length > 0) {
-    const sorted = [...apples].sort((a, b) => manhattan(a, head) - manhattan(b, head));
-    let bestPath = null;
-    for (const apple of sorted) {
-      const path = astar(head, apple, snake);
-      if (!path || path.length < 2) continue;
-      if (isPathSafe(path, snake, apple)) {
-        if (!bestPath || path.length < bestPath.length) {
-          bestPath = path;
-        }
-      }
-    }
-    if (bestPath) {
-      return { x: bestPath[1].x - head.x, y: bestPath[1].y - head.y };
-    }
+  if (!useSerpentineWinMode && snake.length >= SERPENTINE_WIN_LENGTH) {
+    useSerpentineWinMode = true;
   }
 
-  // ── Tier 2: Chase actual tail ─────────────────────────────────────────────
-  const tail = snake[snake.length - 1];
-  const pathToTail = astar(head, tail, snake);
-  if (pathToTail && pathToTail.length >= 2) {
-    return { x: pathToTail[1].x - head.x, y: pathToTail[1].y - head.y };
+  if (useSerpentineWinMode) return getSerpentineWinDirection();
+
+  // ── Tier 1: Stochastic early game ────────────────────────────────────────
+  // Free-roaming and more varied; switches out early to protect late-game.
+  if (snake.length < RANDOM_MOVE_UNTIL_LENGTH) {
+    const randomDir = getRandomizedShortSnakeDirection();
+    if (randomDir) return randomDir;
   }
 
-  // ── Tier 3: Survival — pick direction with most reachable space ───────────
+  if (!isSnakeAlignedToHamiltonian()) {
+    return getSerpentineTransitionDirection(false);
+  }
+
+  // ── Tier 2: Hamiltonian shortcut toward apples ───────────────────────────
+  const shortcutDir = getHamiltonianShortcutDirection();
+  if (shortcutDir) return shortcutDir;
+
+  // ── Tier 3: A* to safe apple ─────────────────────────────────────────────
+  // Use full paths only when they still respect the Hamiltonian ordering.
+  const astarDir = getAStarDirectionForCycle(isHamiltonianShortcutSafe);
+  if (astarDir) return astarDir;
+
+  // ── Tier 4: Hamiltonian safety loop ───────────────────────────────────────
+  // This guarantees progress around the board and will eventually reach apples.
+  const cycleDir = getHamiltonianDirection();
+  const cycleHead = {
+    x: (head.x + cycleDir.x + GRID_SIZE) % GRID_SIZE,
+    y: (head.y + cycleDir.y + GRID_SIZE) % GRID_SIZE
+  };
+  if (!isBodyCollision(cycleHead)) return cycleDir;
+
+  // ── Tier 5: Survival — pick direction with most reachable space ───────────
   return getSurvivalDirection(head, snake, snakeDirection);
 }
 

@@ -1,30 +1,47 @@
-# TikTok Live Snake Game 🐍
+# TikTok Live Snake Game
 
-Trò chơi Rắn săn mồi kết nối với TikTok Live — mỗi khi người xem tặng quà, táo xuất hiện trên bàn chơi. Rắn được điều khiển hoàn toàn bởi AI (A* pathfinding + flood fill safety).
+Game rắn săn mồi chạy trên browser, kết nối TikTok Live qua Node.js. Mỗi gift từ viewer tạo thêm táo trên sân; rắn được điều khiển hoàn toàn bởi AI.
 
-## Yêu cầu
+## Yêu Cầu
 
 - Node.js 18+
-- Một TikTok account đang livestream (để dùng tính năng kết nối live)
+- Một TikTok account đang livestream nếu muốn dùng dữ liệu live thật
 
-## Cài đặt & chạy
+## Cài Đặt Và Chạy
 
 ```bash
 npm install
-npm start        # http://localhost:3000
-npm run dev      # node --watch (auto-reload)
+npm start
 ```
 
-## Cách sử dụng
+Mặc định server chạy tại:
 
-1. Nhập `@username` TikTok **đang live** vào ô input
-2. Nhấn nút **plug** (icon cắm điện) để kết nối
-3. Khi viewer tặng quà → táo xuất hiện → rắn AI tự ăn
-4. Nhấn nút **unplug** để ngắt kết nối
+```text
+http://localhost:3000
+```
 
-### Test không cần livestream
+Chế độ dev:
 
-Nhấn phím **`1`** để giả lập 1 quà, **`2`** để giả lập 5 quà, hoặc dùng API:
+```bash
+npm run dev
+```
+
+## Cách Sử Dụng
+
+1. Mở `http://localhost:3000`.
+2. Nhập TikTok username đang live, có thể nhập `@username` hoặc `username`.
+3. Nhấn nút plug để kết nối.
+4. Khi viewer tặng quà, game nhận gift và thêm táo vào sân.
+5. Nhấn nút unplug để ngắt kết nối.
+
+## Test Không Cần Livestream
+
+Trong browser:
+
+- Nhấn phím `1` để giả lập 1 gift.
+- Nhấn phím `2` để giả lập 5 gift.
+
+Hoặc dùng REST API:
 
 ```bash
 curl -X POST http://localhost:3000/test-gift \
@@ -36,51 +53,86 @@ curl -X POST http://localhost:3000/test-gift \
   -d '{"count": 5, "giftName": "TikTok Universe"}'
 ```
 
-## Kiến trúc
+## Kiến Trúc
 
+```text
+TikTok Live Webcast
+        |
+        v
+server.js
+  - Express static server
+  - Socket.io relay
+  - tiktok-live-connector
+        |
+        v
+Browser
+  - public/index.html
+  - public/style.css
+  - public/game.js
 ```
-TikTok Live (Webcast)
-        │
-  server.js (Node.js)
-  ├── tiktok-live-connector  ← nhận events từ TikTok qua WebSocket
-  ├── Express                ← phục vụ static files + REST API
-  └── Socket.io              ← relay events sang browser
-        │
-  public/game.js (Browser)
-  ├── HTML5 Canvas           ← render game (16×16 grid, cell size động)
-  ├── A* + Flood Fill AI     ← điều khiển rắn tự động
-  └── Socket.io client       ← nhận gift/chat events
+
+TikTok Live không được kết nối trực tiếp từ browser. `server.js` là cầu nối giữa TikTok Webcast và client browser.
+
+## Cấu Trúc Thư Mục
+
+```text
+snake_game_tiktok_live/
+├── package.json
+├── package-lock.json
+├── server.js
+├── README.md
+├── CLAUDE.md
+├── AI_ALGORITHM.md
+└── public/
+    ├── index.html
+    ├── style.css
+    └── game.js
 ```
 
-TikTok không cho kết nối trực tiếp từ browser (CORS). Server Node.js là cầu nối bắt buộc.
-
-## Tính năng
+## Tính Năng Chính
 
 | Tính năng | Mô tả |
 |---|---|
-| **Gift → Apple** | Mỗi quà tặng = táo xuất hiện trên sân, số lượng theo `repeatCount` |
-| **AI A\* + Flood Fill** | Tìm đường tới táo gần nhất, kiểm tra không gian trước khi đi |
-| **Chase tail fallback** | Khi không có đường an toàn tới táo, AI đuổi theo đuôi mình |
-| **Xuyên tường** | Rắn đi qua tường và xuất hiện bên kia, AI biết tính đường qua tường |
-| **Không chết vì thân** | Khi sắp cắn thân → tự tìm hướng thoát; chỉ chết khi hoàn toàn bị bít |
-| **Soft reset** | Khi chết → đếm ngược 5s → respawn, táo giữ nguyên |
-| **Apple queue** | Nhiều quà cùng lúc → táo xuất hiện tuần tự theo tick, không spam |
-| **Apple animation** | Táo xuất hiện với hiệu ứng scale bounce + 3 vòng sáng lan toả |
-| **Gift notification** | Pill nhỏ dưới canvas: tên người tặng + số táo, tự ẩn sau 1.8s |
-| **Chat TikTok** | Tin nhắn chat hiển thị real-time trong side panel |
+| TikTok gift -> táo | Gift hoàn tất streak sẽ tạo số táo theo `repeatCount`. |
+| Apple queue | Gift nhiều táo được đưa vào queue và spawn dần theo tick. |
+| AI nhiều phase | Short mode, Hilbert mode, Serpentine playful, Serpentine strict. |
+| Xuyên tường | Rắn wrap qua biên lưới thay vì chết khi chạm tường. |
+| Safety checks | A*, flood-fill, path simulation, tail reachability và cycle shortcut safety. |
+| Soft loss | Khi bị bít hoàn toàn, hiện `LOSS`, đếm ngược 5 giây rồi restart. |
+| Win state | Khi rắn đạt đủ 256 ô, hiện `WIN`, đếm ngược 10 giây và bắn pháo bông. |
+| Apple animation | Táo có hiệu ứng scale bounce và ripple khi xuất hiện. |
+| Gift notification | Hiển thị người tặng và số táo dưới canvas. |
+| Chat log | Chat TikTok hiển thị realtime trong side panel. |
 
-## Cấu trúc thư mục
+## AI Hiện Tại
 
+AI nằm trong `public/game.js`. Tài liệu chi tiết ở [AI_ALGORITHM.md](./AI_ALGORITHM.md).
+
+Các hằng số tuning hiện tại:
+
+```js
+const BASE_TICK_MS = 60;
+const RANDOM_MOVE_UNTIL_LENGTH = 50;
+const SHORT_MODE_RANDOMNESS = 0.02;
+const RANDOM_TOP_CANDIDATES = 2;
+const SERPENTINE_WIN_LENGTH = 160;
+const SERPENTINE_STRICT_LENGTH = 220;
 ```
-tiktoklivetest/
-├── package.json
-├── server.js              ← backend Node.js
-├── CLAUDE.md              ← context chi tiết cho AI agent
-├── README.md              ← file này
-└── public/
-    ├── index.html         ← layout, IDs quan trọng, Lucide icons CDN
-    ├── style.css          ← dark theme, layout dọc cố định, max-width 480px
-    └── game.js            ← game engine + AI + Socket.io client
+
+Luồng quyết định chính:
+
+```text
+length < RANDOM_MOVE_UNTIL_LENGTH
+  -> Short mode: ưu tiên A* tới táo, random rất nhẹ
+
+length < SERPENTINE_WIN_LENGTH
+  -> Hilbert mode: shortcut/A* an toàn trên Hilbert curve
+
+length >= SERPENTINE_WIN_LENGTH
+  -> Serpentine win mode
+     -> transition an toàn nếu chưa aligned
+     -> playful serpentine trước length 220
+     -> strict serpentine từ length 220 để win
 ```
 
 ## REST API
@@ -88,12 +140,27 @@ tiktoklivetest/
 | Method | Endpoint | Mô tả |
 |---|---|---|
 | `POST` | `/connect` | Kết nối TikTok Live. Body: `{"username": "abc"}` |
-| `POST` | `/disconnect` | Ngắt kết nối |
-| `GET` | `/status` | Trạng thái hiện tại |
+| `POST` | `/disconnect` | Ngắt kết nối TikTok Live hiện tại. |
+| `GET` | `/status` | Trả về trạng thái kết nối hiện tại. |
 | `POST` | `/test-gift` | Giả lập gift. Body: `{"count": N, "giftName": "..."}` |
 
-## Lưu ý bảo mật
+## Socket.io Events
+
+Server emit các event sau sang browser:
+
+| Event | Mô tả |
+|---|---|
+| `tiktok:status` | Sync trạng thái khi browser mới kết nối. |
+| `tiktok:connected` | Đã kết nối livestream. |
+| `tiktok:disconnected` | Đã ngắt kết nối hoặc stream kết thúc. |
+| `tiktok:error` | Lỗi kết nối/live connector. |
+| `tiktok:gift` | Gift hoàn tất streak, dùng để cộng táo. |
+| `tiktok:chat` | Tin nhắn chat realtime. |
+
+## Bảo Mật Và Giới Hạn
 
 - `tiktok-live-connector` là thư viện reverse-engineered, không chính thức.
-- `protobufjs` (dep của connector) có CVE đã biết. **Chỉ chạy local, không deploy ra internet.**
-- Mọi dữ liệu từ TikTok đều được `escapeHtml()` trước khi đưa vào DOM (chống XSS).
+- Dự án phù hợp chạy local hoặc môi trường kiểm soát. Không nên public ra internet nếu chưa audit bảo mật.
+- Dữ liệu TikTok đưa vào DOM được escape bằng `escapeHtml()`.
+- Gift chỉ được xử lý khi `repeatEnd === true` để tránh đếm trùng streak.
+
