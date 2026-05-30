@@ -1,10 +1,12 @@
 // ─── Constants ───────────────────────────────────────────────────────────────
-const GRID_SIZE = 30;
-const CELL_SIZE = 20;
-const CANVAS_SIZE = GRID_SIZE * CELL_SIZE; // 600
+const GRID_SIZE = 16;
+// Fill available screen width (phone: ~23px/cell → 368px canvas; desktop: capped at 30px → 480px)
+// Giới hạn theo phone width tối đa 460px để layout luôn dọc
+const CELL_SIZE = Math.min(28, Math.max(18, Math.floor((Math.min(window.innerWidth, 460) - 16) / GRID_SIZE)));
+const CANVAS_SIZE = GRID_SIZE * CELL_SIZE;
 const BASE_TICK_MS = 60;
-const MAX_APPLES = 20;
-const GIFT_NOTIFICATION_MS = 4000;
+const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% diện tích lưới
+const GIFT_NOTIFICATION_MS = 1800;
 
 // ─── Game State ───────────────────────────────────────────────────────────────
 let snake = [];
@@ -13,25 +15,25 @@ let apples = [];
 let appleQueue = 0;
 let score = 0;
 let totalGifts = 0;
-let consecutiveCollisions = 0;
 let gameLoopInterval = null;
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
+canvas.width = CANVAS_SIZE;
+canvas.height = CANVAS_SIZE;
 const ctx = canvas.getContext('2d');
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 function initGame() {
   snake = [
-    { x: 15, y: 15 },
-    { x: 14, y: 15 },
-    { x: 13, y: 15 }
+    { x: 8, y: 7 },
+    { x: 7, y: 7 },
+    { x: 6, y: 7 }
   ];
   snakeDirection = { x: 1, y: 0 };
   apples = [];
   appleQueue = 0;
   score = 0;
-  consecutiveCollisions = 0;
   spawnApple();
   if (gameLoopInterval) clearInterval(gameLoopInterval);
   gameLoopInterval = setInterval(tick, BASE_TICK_MS);
@@ -51,41 +53,25 @@ function tick() {
   // AI picks direction
   snakeDirection = getAIDirection();
 
-  // Compute proposed next head
+  // Compute proposed next head — wrap qua tường
   let newHead = {
-    x: snake[0].x + snakeDirection.x,
-    y: snake[0].y + snakeDirection.y
+    x: (snake[0].x + snakeDirection.x + GRID_SIZE) % GRID_SIZE,
+    y: (snake[0].y + snakeDirection.y + GRID_SIZE) % GRID_SIZE
   };
 
-  // Wall collision → immediate reset (no grace period for walls)
-  if (isOutOfBounds(newHead)) {
-    handleSoftReset();
-    return;
-  }
-
-  // Self-collision grace mechanic
+  // Self-collision: tìm hướng thoát; chỉ chết khi hoàn toàn bị bít
   if (isBodyCollision(newHead)) {
-    consecutiveCollisions++;
-    if (consecutiveCollisions >= 2) {
-      // Second consecutive self-collision → reset
-      handleSoftReset();
-      return;
-    }
-    // First self-collision: override with best escape direction
     const escapeDir = getSurvivalDirection(snake[0], snake, snakeDirection);
     const escapeHead = {
-      x: snake[0].x + escapeDir.x,
-      y: snake[0].y + escapeDir.y
+      x: (snake[0].x + escapeDir.x + GRID_SIZE) % GRID_SIZE,
+      y: (snake[0].y + escapeDir.y + GRID_SIZE) % GRID_SIZE
     };
-    if (isOutOfBounds(escapeHead) || isBodyCollision(escapeHead)) {
-      // Truly cornered, no escape → reset immediately
+    if (isBodyCollision(escapeHead)) {
       handleSoftReset();
       return;
     }
     snakeDirection = escapeDir;
     newHead = escapeHead;
-  } else {
-    consecutiveCollisions = 0;
   }
 
   // Check apple
@@ -134,12 +120,11 @@ function startDeathCountdown(seconds) {
 
 function restartGame() {
   snake = [
-    { x: 15, y: 15 },
-    { x: 14, y: 15 },
-    { x: 13, y: 15 }
+    { x: 8, y: 7 },
+    { x: 7, y: 7 },
+    { x: 6, y: 7 }
   ];
   snakeDirection = { x: 1, y: 0 };
-  consecutiveCollisions = 0;
   render();
   updateUI();
   gameLoopInterval = setInterval(tick, BASE_TICK_MS);
@@ -166,13 +151,22 @@ function spawnApple() {
     }
   }
   if (empty.length === 0) return false;
-  apples.push(empty[Math.floor(Math.random() * empty.length)]);
+  const cell = empty[Math.floor(Math.random() * empty.length)];
+  apples.push({ x: cell.x, y: cell.y, spawnTime: Date.now() });
   return true;
+}
+
+// Easing: scale từ 0 lên hơi quá 1 rồi về 1 (bounce nhẹ)
+function easeOutBack(t) {
+  const c = 1.70158;
+  return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
 }
 
 // ─── A* Pathfinding ───────────────────────────────────────────────────────────
 function manhattan(a, b) {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  const dx = Math.abs(a.x - b.x);
+  const dy = Math.abs(a.y - b.y);
+  return Math.min(dx, GRID_SIZE - dx) + Math.min(dy, GRID_SIZE - dy);
 }
 
 function astar(start, goal, snakeBody) {
@@ -202,11 +196,11 @@ function astar(start, goal, snakeBody) {
     closedSet.add(key);
 
     const neighbors = [
-      { x: current.x + 1, y: current.y },
-      { x: current.x - 1, y: current.y },
-      { x: current.x, y: current.y + 1 },
-      { x: current.x, y: current.y - 1 }
-    ].filter(n => n.x >= 0 && n.x < GRID_SIZE && n.y >= 0 && n.y < GRID_SIZE);
+      { x: (current.x + 1) % GRID_SIZE,              y: current.y },
+      { x: (current.x - 1 + GRID_SIZE) % GRID_SIZE,  y: current.y },
+      { x: current.x, y: (current.y + 1) % GRID_SIZE },
+      { x: current.x, y: (current.y - 1 + GRID_SIZE) % GRID_SIZE }
+    ];
 
     for (const nb of neighbors) {
       const nbKey = `${nb.x},${nb.y}`;
@@ -240,14 +234,13 @@ function floodFill(startCell, obstacles) {
   while (queue.length > 0) {
     const cell = queue.shift();
     count++;
-    if (count >= 200) break; // early exit — enough space confirmed
 
     const neighbors = [
-      { x: cell.x + 1, y: cell.y },
-      { x: cell.x - 1, y: cell.y },
-      { x: cell.x, y: cell.y + 1 },
-      { x: cell.x, y: cell.y - 1 }
-    ].filter(n => n.x >= 0 && n.x < GRID_SIZE && n.y >= 0 && n.y < GRID_SIZE);
+      { x: (cell.x + 1) % GRID_SIZE,             y: cell.y },
+      { x: (cell.x - 1 + GRID_SIZE) % GRID_SIZE, y: cell.y },
+      { x: cell.x, y: (cell.y + 1) % GRID_SIZE },
+      { x: cell.x, y: (cell.y - 1 + GRID_SIZE) % GRID_SIZE }
+    ];
     for (const n of neighbors) {
       const k = `${n.x},${n.y}`;
       if (!visited.has(k) && !obstacles.has(k)) {
@@ -259,12 +252,21 @@ function floodFill(startCell, obstacles) {
   return count;
 }
 
-// Simulate snake following a path (without apple eating) and check space at the end
-function isPathSafe(path, snakeBody) {
+// Simulate snake following a path to a specific apple (grows once when eating it),
+// then flood-fill from final head position to verify enough space remains.
+function isPathSafe(path, snakeBody, targetApple = null) {
+  const targetKey = targetApple ? `${targetApple.x},${targetApple.y}` : null;
   let simSnake = snakeBody.map(s => ({ ...s }));
+  let growthPending = 0;
   for (let i = 1; i < path.length; i++) {
     simSnake.unshift(path[i]);
-    simSnake.pop();
+    if (targetKey && `${path[i].x},${path[i].y}` === targetKey) {
+      growthPending++;
+    } else if (growthPending > 0) {
+      growthPending--;
+    } else {
+      simSnake.pop();
+    }
   }
   const obstacles = new Set(simSnake.map(s => `${s.x},${s.y}`));
   const reachable = floodFill(simSnake[0], obstacles);
@@ -283,8 +285,10 @@ function getSurvivalDirection(head, snakeBody, currentDir) {
   let bestScore = -1;
 
   for (const dir of valid) {
-    const next = { x: head.x + dir.x, y: head.y + dir.y };
-    if (next.x < 0 || next.x >= GRID_SIZE || next.y < 0 || next.y >= GRID_SIZE) continue;
+    const next = {
+      x: (head.x + dir.x + GRID_SIZE) % GRID_SIZE,
+      y: (head.y + dir.y + GRID_SIZE) % GRID_SIZE
+    };
     if (bodySet.has(`${next.x},${next.y}`)) continue;
     const space = floodFill(next, bodySet);
     if (space > bestScore) {
@@ -296,31 +300,36 @@ function getSurvivalDirection(head, snakeBody, currentDir) {
 }
 
 function getAIDirection() {
-  if (apples.length === 0) return snakeDirection;
-
   const head = snake[0];
 
-  // 1. Find nearest apple and try A* path with lookahead safety check
-  const target = apples.reduce((nearest, apple) =>
-    manhattan(apple, head) < manhattan(nearest, head) ? apple : nearest
-  );
-
-  const pathToApple = astar(head, target, snake);
-  if (pathToApple && pathToApple.length >= 2 && isPathSafe(pathToApple, snake)) {
-    updateAIInfo(`A* → (${target.x},${target.y})`);
-    return { x: pathToApple[1].x - head.x, y: pathToApple[1].y - head.y };
+  // ── Tier 1: A* to safest apple ───────────────────────────────────────────
+  // Sort apples by distance so we try the nearest ones first.
+  // isPathSafe simulates only THIS apple's growth — not all 20 on the grid.
+  if (apples.length > 0) {
+    const sorted = [...apples].sort((a, b) => manhattan(a, head) - manhattan(b, head));
+    let bestPath = null;
+    for (const apple of sorted) {
+      const path = astar(head, apple, snake);
+      if (!path || path.length < 2) continue;
+      if (isPathSafe(path, snake, apple)) {
+        if (!bestPath || path.length < bestPath.length) {
+          bestPath = path;
+        }
+      }
+    }
+    if (bestPath) {
+      return { x: bestPath[1].x - head.x, y: bestPath[1].y - head.y };
+    }
   }
 
-  // 2. Unsafe path to apple — chase tail to buy time and open up space
+  // ── Tier 2: Chase actual tail ─────────────────────────────────────────────
   const tail = snake[snake.length - 1];
   const pathToTail = astar(head, tail, snake);
   if (pathToTail && pathToTail.length >= 2) {
-    updateAIInfo('Chase tail');
     return { x: pathToTail[1].x - head.x, y: pathToTail[1].y - head.y };
   }
 
-  // 3. Last resort: pick direction with most open space
-  updateAIInfo('Survival');
+  // ── Tier 3: Survival — pick direction with most reachable space ───────────
   return getSurvivalDirection(head, snake, snakeDirection);
 }
 
@@ -345,29 +354,57 @@ function render() {
   }
 
   // Apples
+  const APPLE_ANIM_MS = 350;
+  const RIPPLE_MS = 600;
   apples.forEach(apple => {
     const px = apple.x * CELL_SIZE + CELL_SIZE / 2;
     const py = apple.y * CELL_SIZE + CELL_SIZE / 2;
     const r = CELL_SIZE / 2 - 2;
+    const age = Date.now() - apple.spawnTime;
+
+    // Vòng sáng lan toả — 3 vòng stagger 130ms
+    if (age < RIPPLE_MS) {
+      for (let i = 0; i < 3; i++) {
+        const start = i * 130;
+        const elapsed = age - start;
+        if (elapsed <= 0) continue;
+        const t = Math.min(elapsed / (RIPPLE_MS - start), 1);
+        const rippleR = r + CELL_SIZE * 1.6 * t;
+        const alpha = (1 - t) * 0.55;
+        ctx.strokeStyle = `rgba(255, 90, 90, ${alpha})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(px, py, rippleR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // Táo (scale-in bounce)
+    const scale = age < APPLE_ANIM_MS ? easeOutBack(age / APPLE_ANIM_MS) : 1;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.scale(scale, scale);
 
     ctx.fillStyle = '#ff3333';
     ctx.beginPath();
-    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
 
     // Shine
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.beginPath();
-    ctx.arc(px - r * 0.3, py - r * 0.35, r * 0.25, 0, Math.PI * 2);
+    ctx.arc(-r * 0.3, -r * 0.35, r * 0.25, 0, Math.PI * 2);
     ctx.fill();
 
     // Stem
     ctx.strokeStyle = '#228822';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(px, py - r);
-    ctx.lineTo(px + 3, py - r - 4);
+    ctx.moveTo(0, -r);
+    ctx.lineTo(3, -r - 4);
     ctx.stroke();
+
+    ctx.restore();
   });
 
   // Snake body (draw tail → head so head is on top)
@@ -422,12 +459,8 @@ function drawEyes(head, dir) {
 function updateUI() {
   document.getElementById('score').textContent = score;
   document.getElementById('snake-length').textContent = snake.length;
-  document.getElementById('apple-queue').textContent = appleQueue;
+  document.getElementById('apple-count').textContent = apples.length;
   document.getElementById('total-gifts').textContent = totalGifts;
-}
-
-function updateAIInfo(text) {
-  document.getElementById('ai-info').textContent = text;
 }
 
 function setUIState(state, info = '') {
@@ -449,7 +482,7 @@ function setUIState(state, info = '') {
       break;
     case 'connected':
       dot.classList.add('dot-green');
-      text.textContent = `🔴 LIVE @${info}`;
+      text.textContent = `${info}`;
       connectBtn.disabled = true;
       disconnectBtn.disabled = false;
       input.disabled = true;
@@ -482,31 +515,23 @@ function escapeHtml(str) {
 function showGiftNotification(data) {
   const feed = document.getElementById('gift-feed');
 
-  const fallbackImg = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Crect width='36' height='36' rx='6' fill='%232a2a3a'/%3E%3Ctext x='18' y='24' text-anchor='middle' font-size='20'%3E🎁%3C/text%3E%3C/svg%3E`;
+  // Xóa card cũ ngay để chỉ hiện 1 card
+  while (feed.firstChild) feed.removeChild(feed.firstChild);
 
   const card = document.createElement('div');
   card.className = 'gift-card';
   card.innerHTML = `
-    <img src="${escapeHtml(data.giftPictureUrl || fallbackImg)}"
-         alt="${escapeHtml(data.giftName)}"
-         onerror="this.src='${fallbackImg}'" />
-    <div class="gift-info">
-      <span class="gifter-name">${escapeHtml(data.nickname)}</span>
-      <span class="gift-name">${escapeHtml(data.giftName)}${data.repeatCount > 1 ? ' ×' + data.repeatCount : ''}</span>
-      <span class="apple-count">+${data.appleCount} 🍎</span>
-    </div>
+    <span class="gifter-name">${escapeHtml(data.nickname)}</span>
+    <span class="apple-count">+${data.appleCount} 🍎</span>
   `;
 
-  feed.prepend(card);
+  feed.appendChild(card);
   requestAnimationFrame(() => card.classList.add('gift-card--visible'));
-
-  // Cap feed at 5 cards
-  while (feed.children.length > 5) feed.removeChild(feed.lastChild);
 
   setTimeout(() => {
     card.classList.remove('gift-card--visible');
     card.classList.add('gift-card--hiding');
-    setTimeout(() => card.remove(), 400);
+    setTimeout(() => card.remove(), 300);
   }, GIFT_NOTIFICATION_MS);
 }
 
@@ -555,12 +580,12 @@ document.getElementById('username-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('connect-btn').click();
 });
 
-document.getElementById('test-gift-btn').addEventListener('click', async () => {
-  await fetch('/test-gift', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 1 }) });
-});
-
-document.getElementById('test-multi-btn').addEventListener('click', async () => {
-  await fetch('/test-gift', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 5, giftName: 'TikTok Universe' }) });
+document.addEventListener('keydown', async (e) => {
+  if (e.key === '1') {
+    await fetch('/test-gift', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 1 }) });
+  } else if (e.key === '2') {
+    await fetch('/test-gift', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 5, giftName: 'TikTok Universe' }) });
+  }
 });
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
@@ -595,4 +620,5 @@ socket.on('tiktok:chat', (data) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
+lucide.createIcons();
 initGame();

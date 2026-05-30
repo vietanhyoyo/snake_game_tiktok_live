@@ -9,40 +9,42 @@ body {
   color: #e0e0e0;
   font-family: 'Segoe UI', system-ui, sans-serif;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 #app {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  padding: 12px;
-  gap: 12px;
+  padding: 8px;
+  gap: 8px;
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 /* ─── Control Panel ─── */
 #control-panel {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 8px;
   background: #13131f;
   border: 1px solid #2a2a3a;
   border-radius: 12px;
-  padding: 12px 20px;
-  flex-wrap: wrap;
+  padding: 10px 14px;
 }
 
 #brand {
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 700;
   color: #00ff88;
-  white-space: nowrap;
+  text-align: center;
 }
 
 #connect-form {
   display: flex;
   gap: 8px;
-  flex: 1;
-  min-width: 280px;
+  width: 100%;
 }
 
 #username-input {
@@ -93,6 +95,13 @@ button:disabled {
   border-color: #00ff88;
   color: #000;
   font-weight: 600;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 #connect-btn:hover:not(:disabled) {
@@ -104,15 +113,30 @@ button:disabled {
   border-color: #ff4466;
   color: #fff;
   font-weight: 600;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 #disconnect-btn:hover:not(:disabled) {
   background: #ff4466;
 }
 
+#connect-btn svg,
+#disconnect-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
 #connection-status {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   white-space: nowrap;
 }
@@ -144,21 +168,32 @@ button:disabled {
 /* ─── Main Content ─── */
 #main-content {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
   flex: 1;
+}
+
+/* ─── Game Column ─── */
+#game-column {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 6px;
 }
 
 /* ─── Game Area ─── */
 #game-area {
   position: relative;
-  flex-shrink: 0;
+  display: flex;
+  justify-content: center; /* canh ngang */
+  align-items: center;     /* canh dọc */
 }
 
 #gameCanvas {
   display: block;
   border: 2px solid #2a2a3a;
   border-radius: 8px;
+  max-width: 100%;
 }
 
 /* ─── Death Overlay ─── */
@@ -224,94 +259,65 @@ button:disabled {
 
 /* ─── Gift Feed ─── */
 #gift-feed {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 240px;
   pointer-events: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  overflow: hidden;
+  align-items: center;
+  min-height: 30px;
 }
 
 .gift-card {
-  background: rgba(10, 10, 20, 0.92);
+  background: rgba(10, 10, 20, 0.85);
   border: 1px solid #3a3a5a;
   border-left: 3px solid #00ff88;
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 20px;
+  padding: 5px 12px;
   display: flex;
   align-items: center;
   gap: 8px;
   opacity: 0;
-  transform: translateX(260px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transform: translateY(10px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  white-space: nowrap;
 }
 
 .gift-card--visible {
   opacity: 1;
-  transform: translateX(0);
+  transform: translateY(0);
 }
 
 .gift-card--hiding {
   opacity: 0;
-  transform: translateX(260px);
-}
-
-.gift-card img {
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
-  object-fit: cover;
-  flex-shrink: 0;
-  background: #2a2a3a;
-}
-
-.gift-card .gift-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  transform: translateY(10px);
 }
 
 .gift-card .gifter-name {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.gift-card .gift-name {
-  font-size: 0.75rem;
-  color: #aaa;
-  white-space: nowrap;
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .gift-card .apple-count {
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   color: #00ff88;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* ─── Side Panel ─── */
 #side-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 220px;
-  flex-shrink: 0;
+  gap: 8px;
+  width: 100%;
 }
 
 /* Score Panel */
 #score-panel {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
 }
 
@@ -343,57 +349,6 @@ button:disabled {
   letter-spacing: 0.05em;
 }
 
-/* AI Status */
-#ai-status {
-  background: #13131f;
-  border: 1px solid #2a2a3a;
-  border-radius: 10px;
-  padding: 12px;
-}
-
-#ai-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #00ff88;
-}
-
-#ai-info {
-  font-size: 0.75rem;
-  color: #666;
-  margin-top: 4px;
-}
-
-/* Test Controls */
-#test-controls {
-  background: #13131f;
-  border: 1px solid #2a2a3a;
-  border-radius: 10px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.test-label {
-  font-size: 0.7rem;
-  color: #555;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 2px;
-}
-
-.test-btn {
-  background: #1a1a2a;
-  border-color: #3a3a5a;
-  font-size: 0.82rem;
-  padding: 7px 10px;
-  text-align: left;
-}
-
-.test-btn:hover {
-  background: #252540;
-  border-color: #ff6b35;
-}
 
 /* Chat Log */
 #chat-log {
@@ -449,25 +404,3 @@ button:disabled {
   font-weight: 600;
 }
 
-/* ─── Responsive ─── */
-@media (max-width: 900px) {
-  #main-content {
-    flex-direction: column;
-  }
-
-  #side-panel {
-    width: 100%;
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-
-  #score-panel {
-    flex: 1;
-    min-width: 200px;
-  }
-
-  #chat-log {
-    width: 100%;
-    min-height: 100px;
-  }
-}

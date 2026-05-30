@@ -20,8 +20,8 @@
           autocomplete="off"
           spellcheck="false"
         />
-        <button id="connect-btn">Kết nối</button>
-        <button id="disconnect-btn" disabled>Ngắt</button>
+        <button id="connect-btn" title="Kết nối"><i data-lucide="plug"></i></button>
+        <button id="disconnect-btn" disabled title="Ngắt kết nối"><i data-lucide="unplug"></i></button>
       </div>
       <div id="connection-status">
         <span id="status-dot" class="dot dot-gray"></span>
@@ -32,26 +32,23 @@
     <!-- Main Content -->
     <div id="main-content">
 
-      <!-- Game Area -->
-      <div id="game-area">
-        <canvas id="gameCanvas" width="600" height="600"></canvas>
-
-        <!-- Gift feed overlay -->
-        <div id="gift-feed"></div>
-
-        <!-- Death overlay -->
-        <div id="death-overlay">
-          <div id="death-content">
-            <div id="death-title">LOSS</div>
-            <div id="death-countdown">5</div>
-            <div id="death-subtitle">Tiếp tục sau...</div>
+      <!-- Game Column -->
+      <div id="game-column">
+        <div id="game-area">
+          <canvas id="gameCanvas"></canvas>
+          <div id="death-overlay">
+            <div id="death-content">
+              <div id="death-title">LOSS</div>
+              <div id="death-countdown">5</div>
+              <div id="death-subtitle">Tiếp tục sau...</div>
+            </div>
           </div>
         </div>
+        <div id="gift-feed"></div>
       </div>
 
       <!-- Side Panel -->
       <div id="side-panel">
-
         <div id="score-panel">
           <div class="stat-card">
             <div class="stat-value" id="score">0</div>
@@ -62,36 +59,25 @@
             <div class="stat-label">Độ dài</div>
           </div>
           <div class="stat-card highlight">
-            <div class="stat-value" id="apple-queue">0</div>
-            <div class="stat-label">Táo chờ</div>
+            <div class="stat-value" id="apple-count">0</div>
+            <div class="stat-label">Táo sân</div>
           </div>
           <div class="stat-card">
             <div class="stat-value" id="total-gifts">0</div>
             <div class="stat-label">Tổng quà</div>
           </div>
         </div>
-
-        <div id="ai-status">
-          <div id="ai-label">🤖 AI đang chạy</div>
-          <div id="ai-info"></div>
-        </div>
-
-        <div id="test-controls">
-          <div class="test-label">Kiểm tra (Dev)</div>
-          <button id="test-gift-btn" class="test-btn">🎁 Giả lập quà</button>
-          <button id="test-multi-btn" class="test-btn">🎁×5 Giả lập x5</button>
-        </div>
-
         <div id="chat-log">
           <div class="chat-label">Chat TikTok</div>
           <div id="chat-messages"></div>
         </div>
-
       </div>
+
     </div>
 
   </div>
 
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="game.js"></script>
 </body>
