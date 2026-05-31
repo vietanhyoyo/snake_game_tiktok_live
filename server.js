@@ -189,6 +189,7 @@ app.get('/status', (req, res) => {
 app.post('/test-gift', (req, res) => {
   const repeatCount = Number(req.body?.count ?? 1);
   const appleCount = Number(req.body?.appleCount ?? repeatCount);
+  const bombCount = Number(req.body?.bombCount ?? 0);
   const availableGift = findAvailableGift({
     giftName: req.body?.giftName,
     giftType: req.body?.giftType
@@ -203,6 +204,7 @@ app.post('/test-gift', (req, res) => {
     diamondCount: 1,
     repeatCount,
     appleCount,
+    bombCount,
     timestamp: Date.now()
   };
   io.emit('tiktok:gift', gift);

@@ -6,6 +6,9 @@ const CELL_SIZE = Math.min(28, Math.max(18, Math.floor((Math.min(window.innerWid
 const CANVAS_SIZE = GRID_SIZE * CELL_SIZE;
 const BASE_TICK_MS = 60;
 const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% diện tích lưới
+const MAX_BOMBS = 20;
+const MIN_SNAKE_LENGTH = 3;
+const EXPLOSION_MS = 520;
 const GIFT_NOTIFICATION_MS = 1800;
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const SHORT_MODE_RANDOMNESS = 0.02;
@@ -48,6 +51,14 @@ const TEST_GIFTS = {
     displayName: 'Lucky Pig',
     appleCount: 0,
     action: 'color'
+  },
+  tiktok: {
+    giftType: 'tiktok',
+    giftName: 'TikTok',
+    displayName: 'TikTok',
+    appleCount: 0,
+    bombCount: 1,
+    action: 'bomb'
   }
 };
 
@@ -55,6 +66,8 @@ const TEST_GIFTS = {
 let snake = [];
 let snakeDirection = { x: 1, y: 0 };
 let apples = [];
+let bombs = [];
+let explosions = [];
 let appleQueue = 0;
 let score = 0;
 let totalGifts = 0;
@@ -105,6 +118,8 @@ function initGame() {
   ];
   snakeDirection = { x: 0, y: -1 };
   apples = [];
+  bombs = [];
+  explosions = [];
   appleQueue = 0;
   score = 0;
   useSerpentineWinMode = false;
@@ -152,6 +167,8 @@ function tick() {
   // Check apple
   const appleIndex = apples.findIndex(a => a.x === newHead.x && a.y === newHead.y);
   const ateApple = appleIndex !== -1;
+  const bombIndex = bombs.findIndex(b => b.x === newHead.x && b.y === newHead.y);
+  const ateBomb = bombIndex !== -1;
 
   snake.unshift(newHead);
   if (ateApple) {
@@ -164,6 +181,11 @@ function tick() {
       return;
     }
     if (apples.length === 0 && appleQueue === 0) spawnApple();
+  } else if (ateBomb) {
+    createExplosion(bombs[bombIndex]);
+    bombs.splice(bombIndex, 1);
+    snake.pop();
+    if (snake.length > MIN_SNAKE_LENGTH) snake.pop();
   } else {
     snake.pop();
   }
@@ -228,6 +250,7 @@ function restartGame() {
     { x: 8, y: 8 }
   ];
   snakeDirection = { x: 0, y: -1 };
+  explosions = [];
   useSerpentineWinMode = false;
   serpentineLooseGapCooldown = 0;
   if (apples.length === 0) spawnApple();
@@ -825,9 +848,19 @@ function getSerpentineWinDirection() {
 
 // ─── Apple Spawning ───────────────────────────────────────────────────────────
 function spawnApple() {
+  return spawnItem(apples, MAX_APPLES);
+}
+
+function spawnBomb() {
+  return spawnItem(bombs, MAX_BOMBS);
+}
+
+function spawnItem(collection, maxItems = Infinity) {
+  if (collection.length >= maxItems) return false;
   const occupied = new Set([
     ...snake.map(s => `${s.x},${s.y}`),
-    ...apples.map(a => `${a.x},${a.y}`)
+    ...apples.map(a => `${a.x},${a.y}`),
+    ...bombs.map(b => `${b.x},${b.y}`)
   ]);
   const empty = [];
   for (let x = 0; x < GRID_SIZE; x++) {
@@ -837,8 +870,38 @@ function spawnApple() {
   }
   if (empty.length === 0) return false;
   const cell = empty[Math.floor(Math.random() * empty.length)];
-  apples.push({ x: cell.x, y: cell.y, spawnTime: Date.now() });
+  collection.push({ x: cell.x, y: cell.y, spawnTime: Date.now() });
   return true;
+}
+
+function createExplosion(cell) {
+  if (!cell) return;
+
+  const x = cell.x * CELL_SIZE + CELL_SIZE / 2;
+  const y = cell.y * CELL_SIZE + CELL_SIZE / 2;
+  const colors = ['#ff3344', '#ff8a00', '#ffd84d', '#ffffff'];
+  const particles = [];
+  const particleCount = 26;
+
+  for (let i = 0; i < particleCount; i++) {
+    const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.35;
+    const speed = 1.2 + Math.random() * 3.6;
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: 1.8 + Math.random() * 2.8,
+      color: colors[Math.floor(Math.random() * colors.length)]
+    });
+  }
+
+  explosions.push({
+    x,
+    y,
+    startTime: Date.now(),
+    particles
+  });
 }
 
 // Easing: scale từ 0 lên hơi quá 1 rồi về 1 (bounce nhẹ)
@@ -1127,6 +1190,49 @@ function render() {
     ctx.restore();
   });
 
+  // Bombs
+  const BOMB_ANIM_MS = 300;
+  bombs.forEach(bomb => {
+    const px = bomb.x * CELL_SIZE + CELL_SIZE / 2;
+    const py = bomb.y * CELL_SIZE + CELL_SIZE / 2;
+    const r = CELL_SIZE / 2 - 4;
+    const age = Date.now() - bomb.spawnTime;
+    const scale = age < BOMB_ANIM_MS ? easeOutBack(age / BOMB_ANIM_MS) : 1;
+    const pulse = 1 + Math.sin(Date.now() / 130) * 0.05;
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.scale(scale * pulse, scale * pulse);
+
+    ctx.fillStyle = '#14141c';
+    ctx.beginPath();
+    ctx.arc(0, 1, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#2f3345';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.beginPath();
+    ctx.arc(-r * 0.35, -r * 0.35, r * 0.24, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#8a6a2a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(r * 0.35, -r * 0.65);
+    ctx.quadraticCurveTo(r * 0.75, -r * 1.15, r * 1.1, -r * 0.95);
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffcc33';
+    ctx.beginPath();
+    ctx.arc(r * 1.18, -r, 2.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  });
+
   // Snake body: segmented gradient, inset sides, rounded turns, smart wall-wrap cuts.
   const snakeWidth = Math.max(12, CELL_SIZE - 6);
   ctx.lineWidth = snakeWidth;
@@ -1205,6 +1311,44 @@ function render() {
 
   // Snake eyes
   drawEyes(snake[0], snakeDirection);
+
+  drawExplosions();
+}
+
+function drawExplosions() {
+  const now = Date.now();
+  explosions = explosions.filter(explosion => now - explosion.startTime < EXPLOSION_MS);
+
+  explosions.forEach(explosion => {
+    const age = now - explosion.startTime;
+    const t = Math.min(age / EXPLOSION_MS, 1);
+    const alpha = 1 - t;
+    const shockwaveRadius = CELL_SIZE * (0.45 + 2.2 * t);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#fff4a8';
+    ctx.beginPath();
+    ctx.arc(explosion.x, explosion.y, CELL_SIZE * 0.65 * (1 - t * 0.45), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = `rgba(255, 115, 40, ${alpha})`;
+    ctx.lineWidth = Math.max(1, 4 * alpha);
+    ctx.beginPath();
+    ctx.arc(explosion.x, explosion.y, shockwaveRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    explosion.particles.forEach(particle => {
+      const px = particle.x + particle.vx * age * 0.045;
+      const py = particle.y + particle.vy * age * 0.045 + t * t * CELL_SIZE * 0.35;
+      ctx.fillStyle = particle.color;
+      ctx.beginPath();
+      ctx.arc(px, py, particle.size * alpha, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.restore();
+  });
 }
 
 function drawEyes(head, dir) {
@@ -1304,7 +1448,7 @@ function escapeAttr(str) {
 }
 
 function normalizeGiftName(data) {
-  return String(data.giftType || data.giftName || '')
+  return `${data.giftName || ''} ${data.displayName || ''} ${data.giftType || ''}`
     .trim()
     .toLowerCase()
     .normalize('NFD')
@@ -1316,6 +1460,7 @@ function getGiftEffect(data) {
   if (normalized.includes('rose') || normalized.includes('hoa hong')) return TEST_GIFTS.rose;
   if (normalized.includes('heart') || normalized.includes('ban tim') || normalized.includes('tim')) return TEST_GIFTS.heart;
   if (normalized.includes('pig') || normalized.includes('chu heo may') || normalized.includes('heo')) return TEST_GIFTS.pig;
+  if (normalized.includes('tiktok') || normalized.includes('tik tok')) return TEST_GIFTS.tiktok;
 
   return {
     giftType: 'default',
@@ -1372,10 +1517,13 @@ function showGiftNotification(data) {
   const feed = document.getElementById('gift-feed');
   const effect = getGiftEffect(data);
   const appleCount = Number(data.appleCount ?? effect.appleCount) || 0;
+  const bombCount = Number(data.bombCount ?? effect.bombCount) || 0;
   const giftImage = getGiftImage(data, effect);
   const displayName = data.displayName || effect.displayName || data.giftName || 'Gift';
   const resultLabel = effect.action === 'color'
     ? '<span class="gift-action">Snake color changed</span>'
+    : effect.action === 'bomb'
+      ? `<span class="gift-action gift-action--danger">+${bombCount || 1} 💣</span>`
     : `<span class="apple-count">+${appleCount} 🍎</span>`;
 
   // Xóa card cũ ngay để chỉ hiện 1 card
@@ -1407,12 +1555,15 @@ function applyGiftEffect(data) {
 
   if (effect.action === 'color') {
     cycleColorTheme();
+  } else if (effect.action === 'bomb') {
+    const bombCount = Number(data.bombCount ?? effect.bombCount) || 1;
+    for (let i = 0; i < bombCount; i++) spawnBomb();
   } else if (appleCount > 0) {
     appleQueue += appleCount;
   }
 
   totalGifts += Number(data.repeatCount) || 1;
-  showGiftNotification({ ...data, appleCount, displayName: effect.displayName });
+  showGiftNotification({ ...data, appleCount, bombCount: data.bombCount ?? effect.bombCount, displayName: effect.displayName });
   updateUI();
 }
 
@@ -1472,7 +1623,8 @@ async function sendTestGift(giftType) {
       giftType,
       giftName: gift.giftName,
       count: gift.appleCount || 1,
-      appleCount: gift.appleCount
+      appleCount: gift.appleCount,
+      bombCount: gift.bombCount || 0
     })
   });
 }
@@ -1486,6 +1638,8 @@ document.addEventListener('keydown', async (e) => {
     await sendTestGift('heart');
   } else if (e.key === '3') {
     await sendTestGift('pig');
+  } else if (e.key === '4') {
+    await sendTestGift('tiktok');
   }
 });
 

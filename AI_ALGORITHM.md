@@ -333,6 +333,181 @@ const SERPENTINE_LOOSE_GAP_RECOVERY_TICKS = 14;
 
 Điều này làm rắn bám serpentine hơn trong prep, ít mở khe hơn.
 
+## Công Cụ Chạy Và Test Thuật Toán
+
+Mục này chỉ ghi các công cụ kiểm tra chung để AI hoặc dev tiếp theo có thể dùng trước khi kết luận một thay đổi thuật toán.
+
+### 1. Chạy server local
+
+```bash
+PORT=3001 npm start
+```
+
+Nếu port bị chiếm:
+
+```bash
+lsof -nP -iTCP:3001 -sTCP:LISTEN
+```
+
+Kiểm tra server và asset:
+
+```bash
+curl -s http://127.0.0.1:3001/status
+curl -s -o /tmp/snake_game_3001.js -w '%{http_code} %{size_download}\n' http://127.0.0.1:3001/game.js
+```
+
+Gửi gift giả:
+
+```bash
+curl -s -X POST http://127.0.0.1:3001/test-gift \
+  -H 'Content-Type: application/json' \
+  -d '{"count":5,"giftName":"Debug Gift"}'
+```
+
+### 2. Kiểm tra cú pháp
+
+```bash
+node --check public/game.js
+```
+
+### 3. Benchmark headless
+
+Dùng Node VM để chạy game loop không cần browser thật. Benchmark tắt render/UI để tập trung đo thuật toán:
+
+```bash
+node <<'NODE'
+const fs = require('fs');
+const vm = require('vm');
+
+function createSandbox() {
+  const noop = () => {};
+  const ctx = new Proxy({}, {
+    get(target, prop) {
+      if (prop === 'createLinearGradient' || prop === 'createRadialGradient') {
+        return () => ({ addColorStop: noop });
+      }
+      if (!(prop in target)) target[prop] = noop;
+      return target[prop];
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    }
+  });
+
+  const makeElement = id => ({
+    id,
+    width: 0,
+    height: 0,
+    value: '',
+    disabled: false,
+    textContent: '',
+    innerHTML: '',
+    firstChild: null,
+    lastChild: null,
+    children: [],
+    style: { setProperty: noop },
+    classList: { add: noop, remove: noop, toggle: noop },
+    getContext: () => ctx,
+    addEventListener: noop,
+    appendChild(child) { return child; },
+    removeChild(child) { return child; },
+    remove: noop
+  });
+
+  const elements = new Map();
+  const document = {
+    documentElement: { style: { setProperty: noop } },
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, makeElement(id));
+      return elements.get(id);
+    },
+    createElement: makeElement,
+    addEventListener: noop
+  };
+
+  const sandbox = {
+    console,
+    window: { innerWidth: 460 },
+    document,
+    alert: noop,
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    io: () => ({ on: noop, emit: noop }),
+    lucide: { createIcons: noop },
+    setInterval: () => 1,
+    clearInterval: noop,
+    setTimeout: noop,
+    requestAnimationFrame: () => 1,
+    cancelAnimationFrame: noop,
+    Date,
+    Math
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  return sandbox;
+}
+
+const code = fs.readFileSync('public/game.js', 'utf8');
+const benchmark = `
+render = function() {};
+updateUI = function() {};
+startFireworks = function() {};
+stopFireworks = function() {};
+startResultCountdown = function() {};
+
+function runOne(maxTicks = 40000) {
+  initGame();
+  const startWins = winCount;
+  const startLosses = lossCount;
+  let maxLength = snake.length;
+
+  for (let i = 0; i < maxTicks; i++) {
+    tick();
+    if (snake.length > maxLength) maxLength = snake.length;
+    if (winCount > startWins) return { result: 'win', ticks: i + 1, maxLength };
+    if (lossCount > startLosses) return { result: 'loss', ticks: i + 1, maxLength };
+  }
+  return { result: 'timeout', ticks: maxTicks, maxLength };
+}
+
+const games = 30;
+const results = [];
+for (let i = 0; i < games; i++) results.push(runOne());
+
+const summary = results.reduce((acc, result) => {
+  acc[result.result] = (acc[result.result] || 0) + 1;
+  acc.maxLengthSum += result.maxLength;
+  acc.tickSum += result.ticks;
+  return acc;
+}, {
+  win: 0,
+  loss: 0,
+  timeout: 0,
+  maxLengthSum: 0,
+  tickSum: 0
+});
+
+summary.games = games;
+summary.winRate = summary.win / games;
+summary.lossRate = summary.loss / games;
+summary.timeoutRate = summary.timeout / games;
+summary.avgMaxLength = +(summary.maxLengthSum / games).toFixed(1);
+summary.avgTicks = +(summary.tickSum / games).toFixed(1);
+console.log(JSON.stringify(summary, null, 2));
+`;
+
+vm.runInContext(code + benchmark, createSandbox(), { filename: 'snake-ai-benchmark.js' });
+NODE
+```
+
+Chỉ số chung nên xem:
+
+- `winRate`: tỉ lệ thắng.
+- `lossRate`: tỉ lệ thua.
+- `timeoutRate`: tỉ lệ chạy quá giới hạn tick.
+- `avgMaxLength`: độ dài tối đa trung bình.
+- `avgTicks`: số tick trung bình mỗi ván.
+
 ## Tóm Tắt Luồng Quyết Định
 
 ```text

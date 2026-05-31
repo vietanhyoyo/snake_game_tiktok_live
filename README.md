@@ -1,6 +1,7 @@
 # TikTok Live Snake Game
 
 Game rắn săn mồi chạy trên browser, kết nối TikTok Live qua Node.js. Mỗi gift từ viewer tạo thêm táo trên sân; rắn được điều khiển hoàn toàn bởi AI.
+Gift TikTok tạo bom; rắn ăn bom sẽ bị trừ 1 độ dài, nhưng không bao giờ nhỏ hơn 3.
 
 ## Yêu Cầu
 
@@ -41,6 +42,7 @@ Trong browser:
 - Nhấn phím `1` để giả lập Hoa hồng, thêm 1 táo.
 - Nhấn phím `2` để giả lập Bắn tim, thêm 5 táo.
 - Nhấn phím `3` để giả lập Chú heo may mắn, đổi màu rắn.
+- Nhấn phím `4` để giả lập TikTok, thêm 1 bom.
 
 Hoặc dùng REST API:
 
@@ -56,6 +58,10 @@ curl -X POST http://localhost:3000/test-gift \
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
   -d '{"count": 1, "giftName": "Chú heo may mắn", "giftType": "pig", "appleCount": 0}'
+
+curl -X POST http://localhost:3000/test-gift \
+  -H "Content-Type: application/json" \
+  -d '{"count": 1, "giftName": "TikTok", "giftType": "tiktok", "appleCount": 0, "bombCount": 1}'
 ```
 
 Ảnh quà trong test sẽ hiện khi request có `giftPictureUrl`, hoặc sau khi app đã kết nối live và server lấy được danh sách gift của TikTok để map theo `giftName`.
@@ -102,6 +108,7 @@ snake_game_tiktok_live/
 |---|---|
 | TikTok gift -> táo | Gift hoàn tất streak sẽ tạo số táo theo `repeatCount`. |
 | Apple queue | Gift nhiều táo được đưa vào queue và spawn dần theo tick. |
+| TikTok gift -> bom | Gift TikTok tạo 1 bom; rắn ăn bom bị giảm 1 độ dài, tối thiểu 3. |
 | AI nhiều phase | Short mode, Hilbert mode, Serpentine playful, Serpentine strict. |
 | Xuyên tường | Rắn wrap qua biên lưới thay vì chết khi chạm tường. |
 | Safety checks | A*, flood-fill, path simulation, tail reachability và cycle shortcut safety. |
@@ -149,7 +156,7 @@ length >= SERPENTINE_WIN_LENGTH
 | `POST` | `/connect` | Kết nối TikTok Live. Body: `{"username": "abc"}` |
 | `POST` | `/disconnect` | Ngắt kết nối TikTok Live hiện tại. |
 | `GET` | `/status` | Trả về trạng thái kết nối hiện tại. |
-| `POST` | `/test-gift` | Giả lập gift. Body: `{"count": N, "giftName": "...", "giftType": "...", "appleCount": N, "giftPictureUrl": "..."}` |
+| `POST` | `/test-gift` | Giả lập gift. Body: `{"count": N, "giftName": "...", "giftType": "...", "appleCount": N, "bombCount": N, "giftPictureUrl": "..."}` |
 
 ## Socket.io Events
 
