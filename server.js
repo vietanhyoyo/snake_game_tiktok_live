@@ -12,16 +12,93 @@ app.use(express.json());
 
 let tiktokConnection = null;
 let currentUsername = null;
+let availableGifts = [];
+
+function normalizeGiftName(name = '') {
+  return String(name)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function getFirstImageUrl(value, depth = 0) {
+  if (!value || depth > 5) return '';
+  if (typeof value === 'string') return /^https?:\/\//.test(value) ? value : '';
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = getFirstImageUrl(item, depth + 1);
+      if (url) return url;
+    }
+    return '';
+  }
+  if (typeof value !== 'object') return '';
+
+  const preferredKeys = [
+    'giftPictureUrl',
+    'url',
+    'urls',
+    'urlList',
+    'url_list',
+    'imageUrl',
+    'image_url',
+    'giftImage',
+    'gift_image',
+    'image',
+    'icon',
+    'displayImage'
+  ];
+
+  for (const key of preferredKeys) {
+    const url = getFirstImageUrl(value[key], depth + 1);
+    if (url) return url;
+  }
+
+  return '';
+}
+
+function getGiftPictureUrl(data = {}) {
+  return getFirstImageUrl(data.giftPictureUrl) ||
+    getFirstImageUrl(data.giftImage) ||
+    getFirstImageUrl(data.extendedGiftInfo) ||
+    getFirstImageUrl(data.giftDetails) ||
+    '';
+}
+
+function findAvailableGift({ giftName, giftType }) {
+  const normalizedName = normalizeGiftName(giftName);
+  const normalizedType = normalizeGiftName(giftType);
+  return availableGifts.find(gift => {
+    const giftNames = [
+      gift.name,
+      gift.giftName,
+      gift.describe,
+      gift.displayName
+    ].map(normalizeGiftName);
+
+    return giftNames.some(name => {
+      return name &&
+        ((normalizedName &&
+          (name === normalizedName ||
+            name.includes(normalizedName) ||
+            normalizedName.includes(name))) ||
+          (normalizedType && name.includes(normalizedType)));
+    });
+  });
+}
 
 function attachTikTokListeners(connection) {
   connection.on('gift', (data) => {
-    // Only process when streak is finalized (repeatEnd prevents duplicate counting)
-    if (data.repeatEnd) {
+    // Only process finalized streak gifts. Non-streak gifts may not send repeatEnd.
+    if (data.repeatEnd || data.giftType !== 1) {
+      const giftPictureUrl = getGiftPictureUrl(data);
       io.emit('tiktok:gift', {
         uniqueId: data.uniqueId,
         nickname: data.nickname,
         giftName: data.giftName,
-        giftPictureUrl: data.giftPictureUrl,
+        giftType: data.giftType,
+        giftId: data.giftId,
+        giftPictureUrl,
         diamondCount: data.diamondCount,
         repeatCount: data.repeatCount,
         appleCount: data.repeatCount,
@@ -73,8 +150,11 @@ app.post('/connect', async (req, res) => {
   }
 
   try {
-    const connection = new WebcastPushConnection(cleanUsername);
+    const connection = new WebcastPushConnection(cleanUsername, {
+      enableExtendedGiftInfo: true
+    });
     const roomInfo = await connection.connect();
+    availableGifts = Array.isArray(connection.availableGifts) ? connection.availableGifts : [];
     tiktokConnection = connection;
     currentUsername = cleanUsername;
     attachTikTokListeners(connection);
@@ -95,6 +175,7 @@ app.post('/disconnect', (req, res) => {
   }
   const prev = currentUsername;
   currentUsername = null;
+  availableGifts = [];
   io.emit('tiktok:disconnected', { reason: 'manual' });
   console.log(`[TikTok] Manually disconnected from @${prev}`);
   res.json({ status: 'disconnected' });
@@ -106,14 +187,22 @@ app.get('/status', (req, res) => {
 
 // Dev endpoint: simulate a gift without a real TikTok stream
 app.post('/test-gift', (req, res) => {
+  const repeatCount = Number(req.body?.count ?? 1);
+  const appleCount = Number(req.body?.appleCount ?? repeatCount);
+  const availableGift = findAvailableGift({
+    giftName: req.body?.giftName,
+    giftType: req.body?.giftType
+  });
+  const giftPictureUrl = req.body?.giftPictureUrl || getGiftPictureUrl(availableGift);
   const gift = {
     uniqueId: 'test_viewer',
     nickname: 'Test Viewer',
     giftName: req.body?.giftName || 'Rose',
-    giftPictureUrl: '',
+    giftType: req.body?.giftType || '',
+    giftPictureUrl,
     diamondCount: 1,
-    repeatCount: req.body?.count || 1,
-    appleCount: req.body?.count || 1,
+    repeatCount,
+    appleCount,
     timestamp: Date.now()
   };
   io.emit('tiktok:gift', gift);

@@ -38,20 +38,27 @@ npm run dev
 
 Trong browser:
 
-- Nhấn phím `1` để giả lập 1 gift.
-- Nhấn phím `2` để giả lập 5 gift.
+- Nhấn phím `1` để giả lập Hoa hồng, thêm 1 táo.
+- Nhấn phím `2` để giả lập Bắn tim, thêm 5 táo.
+- Nhấn phím `3` để giả lập Chú heo may mắn, đổi màu rắn.
 
 Hoặc dùng REST API:
 
 ```bash
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
-  -d '{"count": 1}'
+  -d '{"count": 1, "giftName": "Hoa hồng", "giftType": "rose", "appleCount": 1}'
 
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
-  -d '{"count": 5, "giftName": "TikTok Universe"}'
+  -d '{"count": 1, "giftName": "Bắn tim", "giftType": "heart", "appleCount": 5}'
+
+curl -X POST http://localhost:3000/test-gift \
+  -H "Content-Type: application/json" \
+  -d '{"count": 1, "giftName": "Chú heo may mắn", "giftType": "pig", "appleCount": 0}'
 ```
+
+Ảnh quà trong test sẽ hiện khi request có `giftPictureUrl`, hoặc sau khi app đã kết nối live và server lấy được danh sách gift của TikTok để map theo `giftName`.
 
 ## Kiến Trúc
 
@@ -101,7 +108,7 @@ snake_game_tiktok_live/
 | Soft loss | Khi bị bít hoàn toàn, hiện `LOSS`, đếm ngược 5 giây rồi restart. |
 | Win state | Khi rắn đạt đủ 256 ô, hiện `WIN`, đếm ngược 10 giây và bắn pháo bông. |
 | Apple animation | Táo có hiệu ứng scale bounce và ripple khi xuất hiện. |
-| Gift notification | Hiển thị người tặng và số táo dưới canvas. |
+| Gift notification | Hiển thị người tặng, ảnh quà từ `giftPictureUrl` của TikTok và số táo dưới canvas. |
 | Chat log | Chat TikTok hiển thị realtime trong side panel. |
 
 ## AI Hiện Tại
@@ -142,7 +149,7 @@ length >= SERPENTINE_WIN_LENGTH
 | `POST` | `/connect` | Kết nối TikTok Live. Body: `{"username": "abc"}` |
 | `POST` | `/disconnect` | Ngắt kết nối TikTok Live hiện tại. |
 | `GET` | `/status` | Trả về trạng thái kết nối hiện tại. |
-| `POST` | `/test-gift` | Giả lập gift. Body: `{"count": N, "giftName": "..."}` |
+| `POST` | `/test-gift` | Giả lập gift. Body: `{"count": N, "giftName": "...", "giftType": "...", "appleCount": N, "giftPictureUrl": "..."}` |
 
 ## Socket.io Events
 
@@ -163,4 +170,3 @@ Server emit các event sau sang browser:
 - Dự án phù hợp chạy local hoặc môi trường kiểm soát. Không nên public ra internet nếu chưa audit bảo mật.
 - Dữ liệu TikTok đưa vào DOM được escape bằng `escapeHtml()`.
 - Gift chỉ được xử lý khi `repeatEnd === true` để tránh đếm trùng streak.
-

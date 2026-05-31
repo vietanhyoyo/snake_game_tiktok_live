@@ -24,6 +24,27 @@ const COLOR_THEMES = [
   { primary: '#facc15', strong: '#ca8a04', soft: '#241d05', rgb: [250, 204, 21], tailRgb: [110, 88, 8] },
   { primary: '#a3e635', strong: '#65a30d', soft: '#172306', rgb: [163, 230, 53], tailRgb: [58, 92, 12] }
 ];
+const TEST_GIFTS = {
+  rose: {
+    giftType: 'rose',
+    giftName: 'Hoa hồng',
+    displayName: 'Rose',
+    appleCount: 1
+  },
+  heart: {
+    giftType: 'heart',
+    giftName: 'Bắn tim',
+    displayName: 'Finger Heart',
+    appleCount: 5
+  },
+  pig: {
+    giftType: 'pig',
+    giftName: 'Chú heo may mắn',
+    displayName: 'Lucky Pig',
+    appleCount: 0,
+    action: 'color'
+  }
+};
 
 // ─── Game State ───────────────────────────────────────────────────────────────
 let snake = [];
@@ -176,7 +197,7 @@ function startResultCountdown(result, seconds) {
   overlay.classList.toggle('win', result === 'win');
   titleEl.textContent = result === 'win' ? 'WIN' : 'LOSS';
   countdownEl.textContent = seconds;
-  subtitleEl.textContent = result === 'win' ? 'Chơi lại sau...' : 'Tiếp tục sau...';
+  subtitleEl.textContent = result === 'win' ? 'Restarting in...' : 'Resuming in...';
   overlay.classList.add('visible');
   if (result === 'win') startFireworks();
   else stopFireworks();
@@ -1144,28 +1165,40 @@ function setUIState(state, info = '') {
   switch (state) {
     case 'connecting':
       dot.classList.add('dot-yellow');
-      text.textContent = `Đang kết nối @${info}…`;
+      text.textContent = `Connecting @${info}...`;
+      input.hidden = false;
+      connectBtn.hidden = false;
+      disconnectBtn.hidden = false;
       connectBtn.disabled = true;
       disconnectBtn.disabled = true;
       input.disabled = true;
       break;
     case 'connected':
       dot.classList.add('dot-green');
-      text.textContent = `${info}`;
+      text.textContent = `Connected @${String(info).replace(/^@/, '')}`;
+      input.hidden = true;
+      connectBtn.hidden = true;
+      disconnectBtn.hidden = false;
       connectBtn.disabled = true;
       disconnectBtn.disabled = false;
       input.disabled = true;
       break;
     case 'error':
       dot.classList.add('dot-red');
-      text.textContent = `Lỗi: ${info}`;
+      text.textContent = `Error: ${info}`;
+      input.hidden = false;
+      connectBtn.hidden = false;
+      disconnectBtn.hidden = false;
       connectBtn.disabled = false;
       disconnectBtn.disabled = true;
       input.disabled = false;
       break;
     default:
       dot.classList.add('dot-gray');
-      text.textContent = 'Chưa kết nối';
+      text.textContent = 'Disconnected';
+      input.hidden = false;
+      connectBtn.hidden = false;
+      disconnectBtn.hidden = false;
       connectBtn.disabled = false;
       disconnectBtn.disabled = true;
       input.disabled = false;
@@ -1181,8 +1214,84 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/'/g, '&#39;');
+}
+
+function normalizeGiftName(data) {
+  return String(data.giftType || data.giftName || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function getGiftEffect(data) {
+  const normalized = normalizeGiftName(data);
+  if (normalized.includes('rose') || normalized.includes('hoa hong')) return TEST_GIFTS.rose;
+  if (normalized.includes('heart') || normalized.includes('ban tim') || normalized.includes('tim')) return TEST_GIFTS.heart;
+  if (normalized.includes('pig') || normalized.includes('chu heo may') || normalized.includes('heo')) return TEST_GIFTS.pig;
+
+  return {
+    giftType: 'default',
+    giftName: data.giftName || 'Gift',
+    displayName: data.giftName || 'Gift',
+    appleCount: Number(data.appleCount) || 0,
+    image: ''
+  };
+}
+
+function getGiftImage(data, effect) {
+  return getFirstGiftImageUrl(data.giftPictureUrl) ||
+    getFirstGiftImageUrl(data.giftImage) ||
+    getFirstGiftImageUrl(data.extendedGiftInfo) ||
+    getFirstGiftImageUrl(data.image) ||
+    '';
+}
+
+function getFirstGiftImageUrl(value, depth = 0) {
+  if (!value || depth > 5) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = getFirstGiftImageUrl(item, depth + 1);
+      if (url) return url;
+    }
+    return '';
+  }
+  if (typeof value !== 'object') return '';
+
+  const keys = [
+    'url',
+    'urls',
+    'urlList',
+    'url_list',
+    'imageUrl',
+    'image_url',
+    'giftPictureUrl',
+    'giftImage',
+    'gift_image',
+    'image',
+    'icon'
+  ];
+
+  for (const key of keys) {
+    const url = getFirstGiftImageUrl(value[key], depth + 1);
+    if (url) return url;
+  }
+
+  return '';
+}
+
 function showGiftNotification(data) {
   const feed = document.getElementById('gift-feed');
+  const effect = getGiftEffect(data);
+  const appleCount = Number(data.appleCount ?? effect.appleCount) || 0;
+  const giftImage = getGiftImage(data, effect);
+  const displayName = data.displayName || effect.displayName || data.giftName || 'Gift';
+  const resultLabel = effect.action === 'color'
+    ? '<span class="gift-action">Snake color changed</span>'
+    : `<span class="apple-count">+${appleCount} 🍎</span>`;
 
   // Xóa card cũ ngay để chỉ hiện 1 card
   while (feed.firstChild) feed.removeChild(feed.firstChild);
@@ -1190,8 +1299,11 @@ function showGiftNotification(data) {
   const card = document.createElement('div');
   card.className = 'gift-card';
   card.innerHTML = `
-    <span class="gifter-name">${escapeHtml(data.nickname)}</span>
-    <span class="apple-count">+${data.appleCount} 🍎</span>
+    ${giftImage ? `<img class="gift-image" src="${escapeAttr(giftImage)}" alt="${escapeAttr(displayName)}" onerror="this.remove()" />` : ''}
+    <span class="gift-text">
+      <span class="gifter-name">${escapeHtml(data.nickname || 'Viewer')} · ${escapeHtml(displayName)}</span>
+      ${resultLabel}
+    </span>
   `;
 
   feed.appendChild(card);
@@ -1202,6 +1314,21 @@ function showGiftNotification(data) {
     card.classList.add('gift-card--hiding');
     setTimeout(() => card.remove(), 300);
   }, GIFT_NOTIFICATION_MS);
+}
+
+function applyGiftEffect(data) {
+  const effect = getGiftEffect(data);
+  const appleCount = Number(data.appleCount ?? effect.appleCount) || 0;
+
+  if (effect.action === 'color') {
+    cycleColorTheme();
+  } else if (appleCount > 0) {
+    appleQueue += appleCount;
+  }
+
+  totalGifts += Number(data.repeatCount) || 1;
+  showGiftNotification({ ...data, appleCount, displayName: effect.displayName });
+  updateUI();
 }
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
@@ -1219,7 +1346,7 @@ document.getElementById('connect-btn').addEventListener('click', async () => {
   const raw = document.getElementById('username-input').value.trim();
   const username = raw.replace(/^@/, '');
   if (!username) {
-    alert('Vui lòng nhập username TikTok');
+    alert('Please enter a TikTok username');
     return;
   }
   setUIState('connecting', username);
@@ -1233,10 +1360,10 @@ document.getElementById('connect-btn').addEventListener('click', async () => {
     if (res.ok) {
       setUIState('connected', username);
     } else {
-      setUIState('error', data.error || 'Không thể kết nối');
+      setUIState('error', data.error || 'Unable to connect');
     }
   } catch (err) {
-    setUIState('error', 'Lỗi mạng: ' + err.message);
+    setUIState('error', 'Network error: ' + err.message);
   }
 });
 
@@ -1249,13 +1376,31 @@ document.getElementById('username-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('connect-btn').click();
 });
 
+async function sendTestGift(giftType) {
+  const gift = TEST_GIFTS[giftType];
+  if (!gift) return;
+
+  await fetch('/test-gift', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      giftType,
+      giftName: gift.giftName,
+      count: gift.appleCount || 1,
+      appleCount: gift.appleCount
+    })
+  });
+}
+
 document.addEventListener('keydown', async (e) => {
   if (e.key.toLowerCase() === 'q' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
     cycleColorTheme();
   } else if (e.key === '1') {
-    await fetch('/test-gift', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 1 }) });
+    await sendTestGift('rose');
   } else if (e.key === '2') {
-    await fetch('/test-gift', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 5, giftName: 'TikTok Universe' }) });
+    await sendTestGift('heart');
+  } else if (e.key === '3') {
+    await sendTestGift('pig');
   }
 });
 
@@ -1280,10 +1425,7 @@ socket.on('tiktok:error', (data) => {
 });
 
 socket.on('tiktok:gift', (data) => {
-  appleQueue += data.appleCount;
-  totalGifts += data.repeatCount;
-  showGiftNotification(data);
-  updateUI();
+  applyGiftEffect(data);
 });
 
 socket.on('tiktok:chat', (data) => {
