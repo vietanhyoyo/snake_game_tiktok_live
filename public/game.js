@@ -10,8 +10,10 @@ const GIFT_NOTIFICATION_MS = 1800;
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
-const SERPENTINE_WIN_LENGTH = 160;
-const SERPENTINE_STRICT_LENGTH = 220;
+const APPLE_CHASE_LENGTH = 70;
+const SERPENTINE_PREP_LENGTH = 130;
+const SERPENTINE_WIN_LENGTH = 150;
+const SERPENTINE_STRICT_LENGTH = 180;
 const COLOR_THEMES = [
   { primary: '#00ff88', strong: '#00cc6a', soft: '#0a1a0f', rgb: [0, 255, 136], tailRgb: [0, 80, 51] },
   { primary: '#38bdf8', strong: '#0284c7', soft: '#071a24', rgb: [56, 189, 248], tailRgb: [8, 70, 110] },
@@ -604,6 +606,36 @@ function getSafeAStarDirection() {
   return getAStarDirectionForCycle((path, snakeBody, apple) => isPathSafe(path, snakeBody, apple));
 }
 
+function getSafeAppleChaseDirection() {
+  if (
+    apples.length === 0 ||
+    snake.length < APPLE_CHASE_LENGTH ||
+    snake.length >= SERPENTINE_STRICT_LENGTH
+  ) return null;
+
+  const astarDir = getSafeAStarDirection();
+  if (astarDir) return astarDir;
+
+  const dirs = [
+    { x: 1, y: 0 }, { x: -1, y: 0 },
+    { x: 0, y: 1 }, { x: 0, y: -1 }
+  ].filter(dir => !(dir.x === -snakeDirection.x && dir.y === -snakeDirection.y));
+
+  let best = null;
+  for (const dir of dirs) {
+    const simulation = simulateMove(dir);
+    if (!isSimulatedMoveSafe(simulation)) continue;
+
+    const appleDistance = getNearestAppleDistance(simulation.next);
+    const turnPenalty = dir.x === snakeDirection.x && dir.y === snakeDirection.y ? 0 : 0.4;
+    const appleBonus = simulation.eats ? -800 : 0;
+    const score = appleDistance * 10 + turnPenalty + appleBonus;
+    if (!best || score < best.score) best = { dir, score };
+  }
+
+  return best?.dir ?? null;
+}
+
 function simulateMove(dir) {
   const head = snake[0];
   const next = {
@@ -650,11 +682,11 @@ function getSerpentineTransitionDirection(strict = false) {
     const preferredBonus = dir.x === preferred.x && dir.y === preferred.y
       ? (strict ? -1000 : -3)
       : 0;
-    const appleBonus = simulation.eats ? -250 : 0;
+    const appleBonus = simulation.eats ? (strict ? -250 : -700) : 0;
     const appleDistance = getNearestAppleDistance(simulation.next);
     const score = strict
       ? preferredBonus + appleBonus + advance + appleDistance * 0.5
-      : preferredBonus + appleBonus + appleDistance * 7 + advance * 0.15 + Math.random() * 2;
+      : preferredBonus + appleBonus + appleDistance * 12 + advance * 0.08 + Math.random();
 
     if (!best || score < best.score) best = { dir, score };
   }
@@ -667,6 +699,10 @@ function getSerpentineWinDirection() {
   const strict = snake.length >= SERPENTINE_STRICT_LENGTH;
 
   if (!isSnakeAlignedToSerpentine()) {
+    if (!strict) {
+      const chaseDir = getSafeAppleChaseDirection();
+      if (chaseDir) return chaseDir;
+    }
     return getSerpentineTransitionDirection(strict);
   }
 
@@ -867,6 +903,10 @@ function getAIDirection() {
     useSerpentineWinMode = true;
   }
 
+  if (snake.length >= SERPENTINE_PREP_LENGTH && !isSnakeAlignedToSerpentine()) {
+    return getSerpentineTransitionDirection(true);
+  }
+
   if (useSerpentineWinMode) return getSerpentineWinDirection();
 
   // ── Tier 1: Stochastic early game ────────────────────────────────────────
@@ -876,20 +916,25 @@ function getAIDirection() {
     if (randomDir) return randomDir;
   }
 
+  // ── Tier 2: Late midgame apple chase ─────────────────────────────────────
+  // Keep eating visible when a full simulated path remains safe.
+  const chaseDir = getSafeAppleChaseDirection();
+  if (chaseDir) return chaseDir;
+
   if (!isSnakeAlignedToHamiltonian()) {
     return getSerpentineTransitionDirection(false);
   }
 
-  // ── Tier 2: Hamiltonian shortcut toward apples ───────────────────────────
+  // ── Tier 3: Hamiltonian shortcut toward apples ───────────────────────────
   const shortcutDir = getHamiltonianShortcutDirection();
   if (shortcutDir) return shortcutDir;
 
-  // ── Tier 3: A* to safe apple ─────────────────────────────────────────────
+  // ── Tier 4: A* to safe apple ─────────────────────────────────────────────
   // Use full paths only when they still respect the Hamiltonian ordering.
   const astarDir = getAStarDirectionForCycle(isHamiltonianShortcutSafe);
   if (astarDir) return astarDir;
 
-  // ── Tier 4: Hamiltonian safety loop ───────────────────────────────────────
+  // ── Tier 5: Hamiltonian safety loop ───────────────────────────────────────
   // This guarantees progress around the board and will eventually reach apples.
   const cycleDir = getHamiltonianDirection();
   const cycleHead = {
@@ -898,7 +943,7 @@ function getAIDirection() {
   };
   if (!isBodyCollision(cycleHead)) return cycleDir;
 
-  // ── Tier 5: Survival — pick direction with most reachable space ───────────
+  // ── Tier 6: Survival — pick direction with most reachable space ───────────
   return getSurvivalDirection(head, snake, snakeDirection);
 }
 

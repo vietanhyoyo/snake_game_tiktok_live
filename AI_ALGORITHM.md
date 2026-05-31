@@ -26,6 +26,8 @@ Hiện tại:
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
+const APPLE_CHASE_LENGTH = 70;
+const SERPENTINE_PREP_LENGTH = 130;
 ```
 
 Trong phase này, rắn ưu tiên ăn táo bằng A*:
@@ -57,10 +59,17 @@ Các hàm chính:
 
 Trong phase này AI ưu tiên:
 
-1. Shortcut an toàn tới táo bằng `getHamiltonianShortcutDirection()`.
-2. A* tới táo nếu đường đó vẫn hợp lệ theo Hilbert.
-3. Nếu không có shortcut, đi tiếp trên Hilbert cycle.
-4. Nếu bị kẹt, dùng survival fallback.
+1. Từ độ dài `SERPENTINE_PREP_LENGTH`, nếu thân chưa aligned serpentine thì ưu tiên `getSerpentineTransitionDirection(true)` để chuẩn bị win ở mốc 150.
+2. Từ độ dài `APPLE_CHASE_LENGTH` đến trước `SERPENTINE_PREP_LENGTH`, thử `getSafeAppleChaseDirection()` trước. Đường A* đầy đủ chỉ được dùng nếu qua được `isPathSafe()`; fallback một bước vẫn phải qua `isSimulatedMoveSafe()`.
+3. Shortcut an toàn tới táo bằng `getHamiltonianShortcutDirection()`.
+4. A* tới táo nếu đường đó vẫn hợp lệ theo Hilbert.
+5. Nếu không có shortcut, đi tiếp trên Hilbert cycle.
+6. Nếu bị kẹt, dùng survival fallback.
+
+Tradeoff:
+
+- Giảm `APPLE_CHASE_LENGTH`: rắn bắt đầu bám táo mạnh hơn sớm hơn, nhưng rời cycle an toàn nhiều hơn.
+- Tăng `SERPENTINE_PREP_LENGTH`: rắn bám táo lâu hơn trước khi xếp win, nhưng tỉ lệ ổn định sau 150 có thể giảm.
 
 ## 3. Serpentine Win Mode
 
@@ -73,8 +82,8 @@ snake.length >= SERPENTINE_WIN_LENGTH
 Hiện tại:
 
 ```js
-const SERPENTINE_WIN_LENGTH = 160;
-const SERPENTINE_STRICT_LENGTH = 220;
+const SERPENTINE_WIN_LENGTH = 150;
+const SERPENTINE_STRICT_LENGTH = 180;
 ```
 
 Serpentine là cycle kiểu quét hàng:
@@ -99,7 +108,7 @@ Serpentine mode có 2 giai đoạn.
 SERPENTINE_WIN_LENGTH <= snake.length < SERPENTINE_STRICT_LENGTH
 ```
 
-AI vẫn giữ serpentine làm khung an toàn, nhưng cho phép shortcut/A* an toàn để rắn còn rẽ theo táo, tránh nhìn quá nhàm chán.
+AI vẫn giữ serpentine làm khung an toàn, nhưng cho phép shortcut/A* an toàn để rắn còn rẽ theo táo, tránh nhìn quá nhàm chán. Trong luồng chính, nếu thân chưa aligned từ mốc `SERPENTINE_PREP_LENGTH` trở lên thì transition strict được ưu tiên trước để bảo vệ tỉ lệ win sau 150.
 
 ### 3.2. Strict Serpentine
 
@@ -127,6 +136,8 @@ Hàm `getSerpentineTransitionDirection()` sẽ:
 4. Ưu tiên hướng tiến gần serpentine và gần táo.
 
 Điều này giúp rắn dần xếp lại thân theo serpentine trước khi vào strict win mode.
+
+Ở non-strict transition, trọng số gần táo cao hơn strict mode. Khi `snake.length >= SERPENTINE_STRICT_LENGTH`, AI giảm ưu tiên táo và quay về ưu tiên cycle để bảo toàn đường thắng.
 
 ## Safety Checks
 
@@ -221,6 +232,9 @@ const SERPENTINE_STRICT_LENGTH = 190;
 ## Tóm Tắt Luồng Quyết Định
 
 ```text
+Nếu snake.length >= SERPENTINE_PREP_LENGTH và chưa aligned serpentine
+  -> Transition strict để xếp thân cho late game
+
 Nếu snake.length >= SERPENTINE_WIN_LENGTH
   -> Serpentine win mode
      -> Nếu chưa aligned: transition an toàn
@@ -235,6 +249,8 @@ Ngược lại nếu snake.length < RANDOM_MOVE_UNTIL_LENGTH
 
 Ngược lại
   -> Hilbert mode
+     -> Nếu snake.length >= SERPENTINE_PREP_LENGTH: ưu tiên xếp serpentine
+     -> Nếu snake.length >= APPLE_CHASE_LENGTH: A* ăn táo nếu path an toàn
      -> shortcut an toàn tới táo
      -> A* an toàn
      -> đi tiếp trên Hilbert cycle
