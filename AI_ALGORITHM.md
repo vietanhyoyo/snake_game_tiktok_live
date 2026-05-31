@@ -27,7 +27,7 @@ const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
 const APPLE_CHASE_LENGTH = 70;
-const SERPENTINE_PREP_LENGTH = 130;
+const SERPENTINE_PREP_LENGTH = 150;
 ```
 
 Trong phase này, rắn ưu tiên ăn táo bằng A*:
@@ -59,12 +59,13 @@ Các hàm chính:
 
 Trong phase này AI ưu tiên:
 
-1. Từ độ dài `SERPENTINE_PREP_LENGTH`, nếu thân chưa aligned serpentine thì ưu tiên `getSerpentineTransitionDirection(true)` để chuẩn bị win ở mốc 150.
-2. Từ độ dài `APPLE_CHASE_LENGTH` đến trước `SERPENTINE_PREP_LENGTH`, thử `getSafeAppleChaseDirection()` trước. Đường A* đầy đủ chỉ được dùng nếu qua được `isPathSafe()`; fallback một bước vẫn phải qua `isSimulatedMoveSafe()`.
-3. Shortcut an toàn tới táo bằng `getHamiltonianShortcutDirection()`.
-4. A* tới táo nếu đường đó vẫn hợp lệ theo Hilbert.
-5. Nếu không có shortcut, đi tiếp trên Hilbert cycle.
-6. Nếu bị kẹt, dùng survival fallback.
+1. Từ độ dài `SERPENTINE_PREP_LENGTH`, AI bắt đầu chuẩn bị serpentine để vào win mode ở mốc `SERPENTINE_WIN_LENGTH`.
+2. Trong khoảng `SERPENTINE_PREP_LENGTH <= snake.length < SERPENTINE_WIN_LENGTH`, AI có thể mở khe nhẹ bằng `getSerpentineTransitionDirection(false, { preferOpenGap: true })`, sau đó quay lại strict transition để xếp thân.
+3. Từ độ dài `APPLE_CHASE_LENGTH` đến trước `SERPENTINE_PREP_LENGTH`, thử `getSafeAppleChaseDirection()` trước. Đường A* đầy đủ chỉ được dùng nếu qua được `isPathSafe()`; fallback một bước vẫn phải qua `isSimulatedMoveSafe()`.
+4. Shortcut an toàn tới táo bằng `getHamiltonianShortcutDirection()`.
+5. A* tới táo nếu đường đó vẫn hợp lệ theo Hilbert.
+6. Nếu không có shortcut, đi tiếp trên Hilbert cycle.
+7. Nếu bị kẹt, dùng survival fallback.
 
 Tradeoff:
 
@@ -82,8 +83,14 @@ snake.length >= SERPENTINE_WIN_LENGTH
 Hiện tại:
 
 ```js
-const SERPENTINE_WIN_LENGTH = 150;
-const SERPENTINE_STRICT_LENGTH = 180;
+const SERPENTINE_PREP_LENGTH = 150;
+const SERPENTINE_WIN_LENGTH = 180;
+const SERPENTINE_STRICT_LENGTH = 220;
+const SERPENTINE_LOOSE_GAP_CHANCE = 0.18;
+const SERPENTINE_LOOSE_GAP_END_LENGTH = 200;
+const SERPENTINE_LOOSE_GAP_RECOVERY_TICKS = 10;
+const SERPENTINE_BODY_ADJACENCY_WEIGHT = 20;
+const SERPENTINE_BODY_PRESSURE_WEIGHT = 6;
 ```
 
 Serpentine là cycle kiểu quét hàng:
@@ -98,9 +105,49 @@ Các hàm chính:
 - `getSerpentineDirection()`
 - `getSerpentineMoveCandidates()`
 
-Serpentine mode có 2 giai đoạn.
+Serpentine-related logic có 3 giai đoạn: prep loose-gap, playful win mode, và strict win mode.
 
-### 3.1. Playful Serpentine
+### 3.1. Prep Loose Gap
+
+Điều kiện thực tế:
+
+```js
+SERPENTINE_PREP_LENGTH <= snake.length < SERPENTINE_WIN_LENGTH
+```
+
+Trong khoảng này AI bắt đầu xếp thân theo serpentine, nhưng có nhịp mở khe nhỏ để rắn không bám sát cơ thể quá đều khi đang quét map.
+
+Luồng xử lý:
+
+1. Nếu `serpentineLooseGapCooldown > 0`, giảm cooldown và tiếp tục strict transition.
+2. Nếu chưa cooldown và còn trong khoảng taper, tính xác suất:
+
+```js
+const prepProgress = (snake.length - SERPENTINE_PREP_LENGTH) /
+  (SERPENTINE_LOOSE_GAP_END_LENGTH - SERPENTINE_PREP_LENGTH);
+const looseGapChance = SERPENTINE_LOOSE_GAP_CHANCE * (1 - prepProgress);
+```
+
+3. Nếu random trúng `looseGapChance`, AI đi transition mềm:
+
+```js
+getSerpentineTransitionDirection(false, { preferOpenGap: true })
+```
+
+4. Sau một lần mở khe, `SERPENTINE_LOOSE_GAP_RECOVERY_TICKS` buộc rắn hồi về strict trong vài tick.
+5. Nếu không mở khe và thân chưa aligned, AI dùng `getSerpentineTransitionDirection(true)`.
+
+Ghi chú: `SERPENTINE_LOOSE_GAP_END_LENGTH` hiện là `200`, lớn hơn `SERPENTINE_WIN_LENGTH = 180`, nên loose-gap chỉ chạy thực tế đến trước 180. Giá trị 200 đóng vai trò điểm taper để xác suất giảm từ từ, thay vì về 0 quá sớm.
+
+Khi `preferOpenGap = true`, điểm số sẽ:
+
+- Phạt ô có nhiều thân kề bên bằng `SERPENTINE_BODY_ADJACENCY_WEIGHT`.
+- Phạt vùng có nhiều thân gần đó bằng `SERPENTINE_BODY_PRESSURE_WEIGHT`.
+- Giảm trọng số bám `advance` serpentine.
+- Giảm trọng số bám táo.
+- Vẫn ưu tiên `isSimulatedMoveSafe()`, nhưng nếu path-to-tail quá chặt thì cho phép `isLoosePrepMoveSafe()` dựa trên flood-fill.
+
+### 3.2. Playful Serpentine
 
 Điều kiện:
 
@@ -108,9 +155,9 @@ Serpentine mode có 2 giai đoạn.
 SERPENTINE_WIN_LENGTH <= snake.length < SERPENTINE_STRICT_LENGTH
 ```
 
-AI vẫn giữ serpentine làm khung an toàn, nhưng cho phép shortcut/A* an toàn để rắn còn rẽ theo táo, tránh nhìn quá nhàm chán. Trong luồng chính, nếu thân chưa aligned từ mốc `SERPENTINE_PREP_LENGTH` trở lên thì transition strict được ưu tiên trước để bảo vệ tỉ lệ win sau 150.
+AI vẫn giữ serpentine làm khung an toàn. Nếu thân chưa aligned, non-strict win mode có thể thử `getSafeAppleChaseDirection()` trước, sau đó mới transition. Khi đã aligned, AI thử A*/shortcut an toàn theo serpentine để rắn còn rẽ theo táo.
 
-### 3.2. Strict Serpentine
+### 3.3. Strict Serpentine
 
 Điều kiện:
 
@@ -133,11 +180,12 @@ Hàm `getSerpentineTransitionDirection()` sẽ:
 1. Xét 4 hướng đi.
 2. Mô phỏng nước đi bằng `simulateMove()`.
 3. Kiểm tra an toàn bằng `isSimulatedMoveSafe()`.
-4. Ưu tiên hướng tiến gần serpentine và gần táo.
+4. Nếu `preferOpenGap = true`, cho phép thêm `isLoosePrepMoveSafe()` khi late game quá chặt.
+5. Ưu tiên hướng tiến gần serpentine, gần táo, hoặc mở khoảng hở tùy mode.
 
 Điều này giúp rắn dần xếp lại thân theo serpentine trước khi vào strict win mode.
 
-Ở non-strict transition, trọng số gần táo cao hơn strict mode. Khi `snake.length >= SERPENTINE_STRICT_LENGTH`, AI giảm ưu tiên táo và quay về ưu tiên cycle để bảo toàn đường thắng.
+Ở strict transition, hướng serpentine được bonus rất mạnh để kéo thân vào đúng thứ tự. Ở non-strict transition, trọng số gần táo cao hơn. Ở open-gap transition, AI phạt body adjacency/body pressure để tránh đi quá sát thân. Khi `snake.length >= SERPENTINE_STRICT_LENGTH`, AI giảm ưu tiên táo và quay về ưu tiên cycle để bảo toàn đường thắng.
 
 ## Safety Checks
 
@@ -168,6 +216,29 @@ Kiểm tra shortcut có còn nằm trong khoảng an toàn giữa đầu và đu
 
 - `isHamiltonianShortcutSafe()`
 - `isSerpentineShortcutSafe()`
+
+### `isSimulatedMoveSafe()`
+
+Mô phỏng một nước đi rồi kiểm tra:
+
+- Có đường từ đầu mới về đuôi bằng A*.
+- Vùng reachable sau nước đi đủ lớn so với chiều dài rắn.
+
+Đây là check an toàn chính cho các nước đi một bước.
+
+### `isLoosePrepMoveSafe()`
+
+Chỉ dùng cho prep loose-gap khi `preferOpenGap = true`.
+
+Hàm này nới nhẹ điều kiện so với `isSimulatedMoveSafe()`:
+
+- Không bắt buộc phải có path-to-tail.
+- Dùng flood-fill để đảm bảo vùng trống tối thiểu còn đủ lớn.
+- Giúp open-gap có candidate trong giai đoạn late game, khi path-to-tail thường quá chặt và strict/open sẽ cùng fallback về survival.
+
+### `countNearbyBodyCells()`
+
+Đếm số đoạn thân quanh ô kế tiếp trong bán kính nhỏ. Kết quả được dùng làm body pressure trong open-gap scoring, giúp rắn ưu tiên ô thoáng hơn thay vì bám sát thân.
 
 ## Win Condition
 
@@ -206,16 +277,17 @@ const RANDOM_MOVE_UNTIL_LENGTH = 10;
 Tăng short mode:
 
 ```js
-const RANDOM_MOVE_UNTIL_LENGTH = 40;
+const RANDOM_MOVE_UNTIL_LENGTH = 80;
 ```
 
 Nhưng không nên tăng quá cao nếu mục tiêu là win ổn định.
 
 ### Muốn chuyển sang win mode sớm hơn
 
-Giảm:
+Giảm `SERPENTINE_WIN_LENGTH`. Nếu giảm thấp hơn `SERPENTINE_PREP_LENGTH`, nên giảm `SERPENTINE_PREP_LENGTH` theo để rắn vẫn có đoạn chuẩn bị:
 
 ```js
+const SERPENTINE_PREP_LENGTH = 100;
 const SERPENTINE_WIN_LENGTH = 120;
 ```
 
@@ -229,17 +301,52 @@ const SERPENTINE_STRICT_LENGTH = 190;
 
 Điều này làm rắn bớt tự nhiên hơn nhưng an toàn hơn khi dài.
 
+### Muốn loose-gap thấy rõ hơn
+
+Tăng nhẹ:
+
+```js
+const SERPENTINE_LOOSE_GAP_CHANCE = 0.24;
+```
+
+Hoặc giảm thời gian hồi strict:
+
+```js
+const SERPENTINE_LOOSE_GAP_RECOVERY_TICKS = 6;
+```
+
+Tradeoff: rắn nhìn tự nhiên hơn, nhưng càng dễ làm chậm quá trình aligned serpentine trước win mode.
+
+### Muốn ưu tiên win ổn định hơn
+
+Giảm loose-gap:
+
+```js
+const SERPENTINE_LOOSE_GAP_CHANCE = 0.08;
+```
+
+Hoặc tăng recovery:
+
+```js
+const SERPENTINE_LOOSE_GAP_RECOVERY_TICKS = 14;
+```
+
+Điều này làm rắn bám serpentine hơn trong prep, ít mở khe hơn.
+
 ## Tóm Tắt Luồng Quyết Định
 
 ```text
-Nếu snake.length >= SERPENTINE_PREP_LENGTH và chưa aligned serpentine
-  -> Transition strict để xếp thân cho late game
-
 Nếu snake.length >= SERPENTINE_WIN_LENGTH
   -> Serpentine win mode
      -> Nếu chưa aligned: transition an toàn
      -> Nếu playful: A*/shortcut theo táo
      -> Nếu strict: ưu tiên cycle để win
+
+Nếu SERPENTINE_PREP_LENGTH <= snake.length < SERPENTINE_WIN_LENGTH
+  -> Nếu cooldown loose-gap còn: giảm cooldown
+  -> Nếu random trúng loose-gap chance: transition mềm preferOpenGap
+  -> Nếu chưa aligned: transition strict
+  -> Nếu đã aligned: đi tiếp luồng phía dưới
 
 Ngược lại nếu snake.length < RANDOM_MOVE_UNTIL_LENGTH
   -> Short mode
@@ -249,7 +356,6 @@ Ngược lại nếu snake.length < RANDOM_MOVE_UNTIL_LENGTH
 
 Ngược lại
   -> Hilbert mode
-     -> Nếu snake.length >= SERPENTINE_PREP_LENGTH: ưu tiên xếp serpentine
      -> Nếu snake.length >= APPLE_CHASE_LENGTH: A* ăn táo nếu path an toàn
      -> shortcut an toàn tới táo
      -> A* an toàn

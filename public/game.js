@@ -11,9 +11,14 @@ const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
 const APPLE_CHASE_LENGTH = 70;
-const SERPENTINE_PREP_LENGTH = 130;
-const SERPENTINE_WIN_LENGTH = 150;
-const SERPENTINE_STRICT_LENGTH = 180;
+const SERPENTINE_PREP_LENGTH = 150;
+const SERPENTINE_WIN_LENGTH = 180;
+const SERPENTINE_STRICT_LENGTH = 220;
+const SERPENTINE_LOOSE_GAP_CHANCE = 0.18;
+const SERPENTINE_LOOSE_GAP_END_LENGTH = 200;
+const SERPENTINE_LOOSE_GAP_RECOVERY_TICKS = 10;
+const SERPENTINE_BODY_ADJACENCY_WEIGHT = 20;
+const SERPENTINE_BODY_PRESSURE_WEIGHT = 6;
 const COLOR_THEMES = [
   { primary: '#00ff88', strong: '#00cc6a', soft: '#0a1a0f', rgb: [0, 255, 136], tailRgb: [0, 80, 51] },
   { primary: '#38bdf8', strong: '#0284c7', soft: '#071a24', rgb: [56, 189, 248], tailRgb: [8, 70, 110] },
@@ -62,6 +67,7 @@ let fireworks = [];
 let useSerpentineWinMode = false;
 let colorThemeIndex = 0;
 let currentTheme = COLOR_THEMES[colorThemeIndex];
+let serpentineLooseGapCooldown = 0;
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
@@ -102,6 +108,7 @@ function initGame() {
   appleQueue = 0;
   score = 0;
   useSerpentineWinMode = false;
+  serpentineLooseGapCooldown = 0;
   spawnApple();
   if (gameLoopInterval) clearInterval(gameLoopInterval);
   gameLoopInterval = setInterval(tick, BASE_TICK_MS);
@@ -222,6 +229,7 @@ function restartGame() {
   ];
   snakeDirection = { x: 0, y: -1 };
   useSerpentineWinMode = false;
+  serpentineLooseGapCooldown = 0;
   if (apples.length === 0) spawnApple();
   render();
   updateUI();
@@ -479,6 +487,32 @@ function getNearestAppleDistance(fromCell) {
   return Math.min(...apples.map(apple => manhattan(fromCell, apple)));
 }
 
+function countAdjacentBodyCells(cell, snakeBody = snake) {
+  const bodySet = new Set(snakeBody.slice(1, -1).map(cellKey));
+  return getNeighbors(cell).filter(neighbor => bodySet.has(cellKey(neighbor))).length;
+}
+
+function countNearbyBodyCells(cell, snakeBody = snake, radius = 2) {
+  const bodySet = new Set(snakeBody.slice(1, -1).map(cellKey));
+  let count = 0;
+
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      const distance = Math.abs(dx) + Math.abs(dy);
+      if (distance > radius) continue;
+
+      const nearby = {
+        x: (cell.x + dx + GRID_SIZE) % GRID_SIZE,
+        y: (cell.y + dy + GRID_SIZE) % GRID_SIZE
+      };
+      if (bodySet.has(cellKey(nearby))) count++;
+    }
+  }
+
+  return count;
+}
+
 function getCycleMoveCandidates(getIndex = getHamiltonianIndex) {
   const head = snake[0];
   const headIndex = getIndex(head);
@@ -683,7 +717,18 @@ function isSimulatedMoveSafe(simulation) {
   return reachable >= Math.max(12, simulation.simSnake.length);
 }
 
-function getSerpentineTransitionDirection(strict = false) {
+function isLoosePrepMoveSafe(simulation) {
+  if (!simulation) return false;
+
+  const obstacles = new Set(simulation.simSnake.slice(0, -1).map(cellKey));
+  const reachable = floodFill(simulation.next, obstacles);
+  const emptyCells = GRID_SIZE * GRID_SIZE - simulation.simSnake.length;
+  const minSpace = Math.max(14, Math.min(emptyCells + 1, Math.floor(simulation.simSnake.length * 0.55)));
+  return reachable >= minSpace;
+}
+
+function getSerpentineTransitionDirection(strict = false, options = {}) {
+  const { preferOpenGap = false } = options;
   const preferred = getSerpentineDirection();
   const dirs = [
     { x: 1, y: 0 }, { x: -1, y: 0 },
@@ -692,10 +737,13 @@ function getSerpentineTransitionDirection(strict = false) {
 
   const headIndex = getSerpentineIndex(snake[0]);
   let best = null;
+  const candidates = [];
 
   for (const dir of dirs) {
     const simulation = simulateMove(dir);
-    if (!isSimulatedMoveSafe(simulation)) continue;
+    if (!isSimulatedMoveSafe(simulation) && !(preferOpenGap && isLoosePrepMoveSafe(simulation))) {
+      continue;
+    }
 
     const advance = cycleDistance(headIndex, getSerpentineIndex(simulation.next));
     if (advance === 0) continue;
@@ -705,11 +753,30 @@ function getSerpentineTransitionDirection(strict = false) {
       : 0;
     const appleBonus = simulation.eats ? (strict ? -250 : -700) : 0;
     const appleDistance = getNearestAppleDistance(simulation.next);
+    const bodyAdjacency = countAdjacentBodyCells(simulation.next, simulation.simSnake);
+    const bodyPressure = countNearbyBodyCells(simulation.next, simulation.simSnake);
+    const openGapPenalty = preferOpenGap
+      ? bodyAdjacency * SERPENTINE_BODY_ADJACENCY_WEIGHT +
+        bodyPressure * SERPENTINE_BODY_PRESSURE_WEIGHT
+      : 0;
     const score = strict
       ? preferredBonus + appleBonus + advance + appleDistance * 0.5
+      : preferOpenGap
+        ? preferredBonus + appleBonus + advance * 0.12 + appleDistance * 1.2 + openGapPenalty + Math.random()
       : preferredBonus + appleBonus + appleDistance * 12 + advance * 0.08 + Math.random();
 
-    if (!best || score < best.score) best = { dir, score };
+    const candidate = { dir, score };
+    candidates.push(candidate);
+    if (!best || score < best.score) best = candidate;
+  }
+
+  if (preferOpenGap && candidates.length > 0) {
+    candidates.sort((a, b) => a.score - b.score);
+    if (Math.random() < SERPENTINE_LOOSE_GAP_CHANCE) {
+      const pool = candidates.slice(0, Math.min(3, candidates.length));
+      return pool[Math.floor(Math.random() * pool.length)].dir;
+    }
+    return candidates[0].dir;
   }
 
   return best?.dir ?? getSurvivalDirection(snake[0], snake, snakeDirection);
@@ -922,6 +989,24 @@ function getAIDirection() {
 
   if (!useSerpentineWinMode && snake.length >= SERPENTINE_WIN_LENGTH) {
     useSerpentineWinMode = true;
+  }
+
+  if (snake.length >= SERPENTINE_PREP_LENGTH && snake.length < SERPENTINE_WIN_LENGTH) {
+    if (serpentineLooseGapCooldown > 0) {
+      serpentineLooseGapCooldown--;
+    } else if (snake.length < SERPENTINE_LOOSE_GAP_END_LENGTH) {
+      const prepProgress = (snake.length - SERPENTINE_PREP_LENGTH) /
+        (SERPENTINE_LOOSE_GAP_END_LENGTH - SERPENTINE_PREP_LENGTH);
+      const looseGapChance = SERPENTINE_LOOSE_GAP_CHANCE * (1 - prepProgress);
+      if (Math.random() < looseGapChance) {
+        serpentineLooseGapCooldown = SERPENTINE_LOOSE_GAP_RECOVERY_TICKS;
+        return getSerpentineTransitionDirection(false, { preferOpenGap: true });
+      }
+    }
+
+    if (!isSnakeAlignedToSerpentine()) {
+      return getSerpentineTransitionDirection(true);
+    }
   }
 
   if (snake.length >= SERPENTINE_PREP_LENGTH && !isSnakeAlignedToSerpentine()) {
