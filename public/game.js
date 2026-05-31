@@ -12,6 +12,16 @@ const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
 const SERPENTINE_WIN_LENGTH = 160;
 const SERPENTINE_STRICT_LENGTH = 220;
+const COLOR_THEMES = [
+  { primary: '#00ff88', strong: '#00cc6a', soft: '#0a1a0f', rgb: [0, 255, 136], tailRgb: [0, 80, 51] },
+  { primary: '#38bdf8', strong: '#0284c7', soft: '#071a24', rgb: [56, 189, 248], tailRgb: [8, 70, 110] },
+  { primary: '#a855f7', strong: '#7e22ce', soft: '#1d1028', rgb: [168, 85, 247], tailRgb: [70, 28, 110] },
+  { primary: '#ff4fd8', strong: '#db2777', soft: '#260a1f', rgb: [255, 79, 216], tailRgb: [110, 24, 92] },
+  { primary: '#ff4466', strong: '#cc2244', soft: '#260a10', rgb: [255, 68, 102], tailRgb: [110, 18, 36] },
+  { primary: '#fb923c', strong: '#ea580c', soft: '#251307', rgb: [251, 146, 60], tailRgb: [110, 55, 15] },
+  { primary: '#facc15', strong: '#ca8a04', soft: '#241d05', rgb: [250, 204, 21], tailRgb: [110, 88, 8] },
+  { primary: '#a3e635', strong: '#65a30d', soft: '#172306', rgb: [163, 230, 53], tailRgb: [58, 92, 12] }
+];
 
 // ─── Game State ───────────────────────────────────────────────────────────────
 let snake = [];
@@ -20,11 +30,15 @@ let apples = [];
 let appleQueue = 0;
 let score = 0;
 let totalGifts = 0;
+let winCount = 0;
+let lossCount = 0;
 let gameLoopInterval = null;
 let resultCountdownTimer = null;
 let fireworksAnimationId = null;
 let fireworks = [];
 let useSerpentineWinMode = false;
+let colorThemeIndex = 0;
+let currentTheme = COLOR_THEMES[colorThemeIndex];
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
@@ -35,6 +49,22 @@ const fireworksCanvas = document.getElementById('fireworksCanvas');
 fireworksCanvas.width = CANVAS_SIZE;
 fireworksCanvas.height = CANVAS_SIZE;
 const fireworksCtx = fireworksCanvas.getContext('2d');
+
+// ─── Theme ───────────────────────────────────────────────────────────────────
+function applyColorTheme() {
+  const root = document.documentElement;
+  root.style.setProperty('--primary', currentTheme.primary);
+  root.style.setProperty('--primary-strong', currentTheme.strong);
+  root.style.setProperty('--primary-soft', currentTheme.soft);
+  root.style.setProperty('--primary-rgb', currentTheme.rgb.join(', '));
+}
+
+function cycleColorTheme() {
+  colorThemeIndex = (colorThemeIndex + 1) % COLOR_THEMES.length;
+  currentTheme = COLOR_THEMES[colorThemeIndex];
+  applyColorTheme();
+  render();
+}
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 function initGame() {
@@ -117,7 +147,9 @@ function handleSoftReset() {
     clearInterval(gameLoopInterval);
     gameLoopInterval = null;
   }
+  lossCount++;
   render();
+  updateUI();
   startResultCountdown('loss', 5);
 }
 
@@ -126,6 +158,8 @@ function handleWin() {
     clearInterval(gameLoopInterval);
     gameLoopInterval = null;
   }
+  winCount++;
+  updateUI();
   startResultCountdown('win', 10);
 }
 
@@ -198,7 +232,7 @@ function stopFireworks() {
 }
 
 function spawnFirework(x = Math.random() * CANVAS_SIZE, y = Math.random() * CANVAS_SIZE * 0.55) {
-  const colors = ['#ffe66d', '#00ff88', '#ff4466', '#7eb8ff', '#ffffff'];
+  const colors = ['#ffe66d', currentTheme.primary, '#ff4466', '#7eb8ff', '#ffffff'];
   const color = colors[Math.floor(Math.random() * colors.length)];
   const count = 34 + Math.floor(Math.random() * 18);
 
@@ -942,25 +976,81 @@ function render() {
     ctx.restore();
   });
 
-  // Snake body (draw tail → head so head is on top)
+  // Snake body: segmented gradient, inset sides, rounded turns, smart wall-wrap cuts.
+  const snakeWidth = Math.max(12, CELL_SIZE - 6);
+  ctx.lineWidth = snakeWidth;
+  ctx.lineCap = 'butt';
+  ctx.lineJoin = 'round';
+
+  const getSnakeColor = (index) => {
+    const t = index / Math.max(snake.length - 1, 1); // 0=head, 1=tail
+    const rgb = currentTheme.rgb.map((channel, channelIndex) => {
+      const tailChannel = currentTheme.tailRgb[channelIndex];
+      return Math.round(channel + (tailChannel - channel) * t);
+    });
+    return `rgb(${rgb.join(',')})`;
+  };
+
+  for (let i = snake.length - 1; i > 0; i--) {
+    const seg = snake[i];
+    const next = snake[i - 1];
+    const px = seg.x * CELL_SIZE + CELL_SIZE / 2;
+    const py = seg.y * CELL_SIZE + CELL_SIZE / 2;
+    const nx = next.x * CELL_SIZE + CELL_SIZE / 2;
+    const ny = next.y * CELL_SIZE + CELL_SIZE / 2;
+    const wrapsX = Math.abs(seg.x - next.x) > 1;
+    const wrapsY = Math.abs(seg.y - next.y) > 1;
+
+    ctx.strokeStyle = getSnakeColor(i - 1);
+    ctx.beginPath();
+    if (wrapsX) {
+      ctx.moveTo(px, py);
+      ctx.lineTo(seg.x < next.x ? 0 : CANVAS_SIZE, py);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(seg.x < next.x ? CANVAS_SIZE : 0, ny);
+      ctx.lineTo(nx, ny);
+    } else if (wrapsY) {
+      ctx.moveTo(px, py);
+      ctx.lineTo(px, seg.y < next.y ? 0 : CANVAS_SIZE);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(nx, seg.y < next.y ? CANVAS_SIZE : 0);
+      ctx.lineTo(nx, ny);
+    } else {
+      ctx.moveTo(px, py);
+      ctx.lineTo(nx, ny);
+    }
+    ctx.stroke();
+  }
+
   for (let i = snake.length - 1; i >= 0; i--) {
     const seg = snake[i];
-    const t = i / Math.max(snake.length - 1, 1); // 0=head, 1=tail
-    const g = Math.round(255 - t * 175); // 255→80
-    const b = Math.round(136 - t * 85);  // 136→51
-    ctx.fillStyle = `rgb(0,${g},${b})`;
-
-    const pad = i === 0 ? 1 : 2;
+    ctx.fillStyle = getSnakeColor(i);
     ctx.beginPath();
-    ctx.roundRect(
-      seg.x * CELL_SIZE + pad,
-      seg.y * CELL_SIZE + pad,
-      CELL_SIZE - pad * 2,
-      CELL_SIZE - pad * 2,
-      i === 0 ? 4 : 3
+    ctx.arc(
+      seg.x * CELL_SIZE + CELL_SIZE / 2,
+      seg.y * CELL_SIZE + CELL_SIZE / 2,
+      snakeWidth / 2,
+      0,
+      Math.PI * 2
     );
     ctx.fill();
   }
+
+  const head = snake[0];
+  ctx.fillStyle = currentTheme.primary;
+  ctx.beginPath();
+  ctx.roundRect(
+    head.x * CELL_SIZE + (CELL_SIZE - snakeWidth) / 2,
+    head.y * CELL_SIZE + (CELL_SIZE - snakeWidth) / 2,
+    snakeWidth,
+    snakeWidth,
+    6
+  );
+  ctx.fill();
 
   // Snake eyes
   drawEyes(snake[0], snakeDirection);
@@ -992,10 +1082,9 @@ function drawEyes(head, dir) {
 
 // ─── UI Updates ───────────────────────────────────────────────────────────────
 function updateUI() {
-  document.getElementById('score').textContent = score;
+  document.getElementById('win-count').textContent = winCount;
+  document.getElementById('loss-count').textContent = lossCount;
   document.getElementById('snake-length').textContent = snake.length;
-  document.getElementById('apple-count').textContent = apples.length;
-  document.getElementById('total-gifts').textContent = totalGifts;
 }
 
 function setUIState(state, info = '') {
@@ -1116,7 +1205,9 @@ document.getElementById('username-input').addEventListener('keydown', e => {
 });
 
 document.addEventListener('keydown', async (e) => {
-  if (e.key === '1') {
+  if (e.key.toLowerCase() === 'q' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+    cycleColorTheme();
+  } else if (e.key === '1') {
     await fetch('/test-gift', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 1 }) });
   } else if (e.key === '2') {
     await fetch('/test-gift', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 5, giftName: 'TikTok Universe' }) });
@@ -1156,4 +1247,5 @@ socket.on('tiktok:chat', (data) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 lucide.createIcons();
+applyColorTheme();
 initGame();
