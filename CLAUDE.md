@@ -15,13 +15,16 @@ Test gift không cần livestream:
 ```bash
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
-  -d '{"count": 3, "giftName": "Rose"}'
+  -d '{"giftType": "rose", "giftName": "Rose", "count": 1, "appleCount": 1}'
 ```
 
 Trong browser:
 
-- `1`: giả lập 1 gift.
-- `2`: giả lập 5 gift.
+- `1`: giả lập Rose (+1 táo).
+- `2`: giả lập Finger Heart (+5 táo).
+- `3`: giả lập Lucky Pig (đổi màu rắn).
+- `4`: giả lập TikTok gift (+1 bom).
+- `q`: cycle màu rắn thủ công.
 
 ## Kiến Trúc
 
@@ -58,40 +61,88 @@ TikTok Live không kết nối trực tiếp từ browser do CORS. `server.js` l
 
 ```js
 const GRID_SIZE = 16;
+const CELL_SIZE = Math.min(28, Math.max(18, Math.floor((Math.min(window.innerWidth, 460) - 16) / GRID_SIZE)));
+const CANVAS_SIZE = GRID_SIZE * CELL_SIZE;
 const BASE_TICK_MS = 60;
 const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4);
+const MAX_BOMBS = 50;
+const MIN_SNAKE_LENGTH = 3;
+const EXPLOSION_MS = 520;
 const GIFT_NOTIFICATION_MS = 1800;
 
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
-const SERPENTINE_WIN_LENGTH = 160;
+const APPLE_CHASE_LENGTH = 70;
+const SERPENTINE_PREP_LENGTH = 150;
+const SERPENTINE_WIN_LENGTH = 180;
 const SERPENTINE_STRICT_LENGTH = 220;
+const SERPENTINE_LOOSE_GAP_CHANCE = 0.18;
+const SERPENTINE_LOOSE_GAP_END_LENGTH = 200;
+const SERPENTINE_LOOSE_GAP_RECOVERY_TICKS = 10;
+const SERPENTINE_BODY_ADJACENCY_WEIGHT = 20;
+const SERPENTINE_BODY_PRESSURE_WEIGHT = 6;
 ```
 
 Ý nghĩa:
 
 - `GRID_SIZE`: lưới 16x16, tổng 256 ô.
+- `CELL_SIZE`: responsive, tự tính theo chiều rộng màn hình (tối đa 460px), kẹp trong [18, 28].
+- `CANVAS_SIZE`: tổng kích thước canvas = `GRID_SIZE * CELL_SIZE`.
 - `BASE_TICK_MS`: tốc độ game loop, thấp hơn là nhanh hơn.
 - `MAX_APPLES`: giới hạn số táo trên sân, hiện là 40% diện tích lưới.
-- `RANDOM_MOVE_UNTIL_LENGTH`: dưới ngưỡng này dùng short mode.
-- `SHORT_MODE_RANDOMNESS`: xác suất lệch khỏi hướng tốt trong short mode.
+- `MAX_BOMBS`: giới hạn số bom trên sân.
+- `MIN_SNAKE_LENGTH`: chiều dài tối thiểu khi ăn bom.
+- `EXPLOSION_MS`: thời gian hiệu ứng nổ bom (ms).
+- `APPLE_CHASE_LENGTH`: từ độ dài này, AI bắt đầu tìm đường A* bám táo giữa game.
+- `SERPENTINE_PREP_LENGTH`: bắt đầu xếp thân theo serpentine từ đây.
 - `SERPENTINE_WIN_LENGTH`: bật serpentine win mode.
 - `SERPENTINE_STRICT_LENGTH`: từ đây ưu tiên strict serpentine để full map.
+- `SERPENTINE_LOOSE_GAP_CHANCE`: xác suất mở khe nhỏ khi đang trong prep phase.
+- `SERPENTINE_LOOSE_GAP_END_LENGTH`: điểm taper xác suất loose-gap về 0.
+- `SERPENTINE_LOOSE_GAP_RECOVERY_TICKS`: số tick strict sau mỗi lần mở khe.
+- `SERPENTINE_BODY_ADJACENCY_WEIGHT` / `SERPENTINE_BODY_PRESSURE_WEIGHT`: trọng số phạt body trong open-gap scoring.
+
+## Gift Types
+
+```js
+const TEST_GIFTS = {
+  rose:   { appleCount: 1,  action: undefined },  // +1 táo
+  heart:  { appleCount: 5,  action: undefined },  // +5 táo
+  pig:    { appleCount: 0,  action: 'color'   },  // đổi màu rắn
+  tiktok: { appleCount: 0,  action: 'bomb', bombCount: 1 }  // +1 bom
+};
+```
+
+`getGiftEffect(data)` normalize tên gift (diacritic-free, lowercase) và trả về entry tương ứng. Nếu không khớp, fallback về `appleCount` từ payload.
+
+## Color Themes
+
+8 theme màu trong `COLOR_THEMES`. Mỗi theme có `primary`, `strong`, `soft`, `rgb`, `tailRgb`. AI áp dụng theme lên CSS variable và render rắn gradient từ đầu (`rgb`) đến đuôi (`tailRgb`).
+
+- `cycleColorTheme()`: tăng `colorThemeIndex`, gọi `applyColorTheme()`.
+- Trigger: gift Lucky Pig hoặc phím `q`.
 
 ## Game State Chính
 
 ```js
-snake                 // mảng segment, index 0 là đầu
-snakeDirection        // vector {x, y}
-apples                // táo đang có trên sân, có spawnTime để animate
-appleQueue            // táo chờ spawn từ gift events
-score                 // +10 mỗi táo
-totalGifts            // tổng repeatCount đã nhận
-gameLoopInterval      // interval tick
-resultCountdownTimer  // timer cho WIN/LOSS overlay
-fireworksAnimationId  // requestAnimationFrame id cho pháo bông
-useSerpentineWinMode  // đã chuyển sang serpentine win mode hay chưa
+snake                     // mảng segment, index 0 là đầu
+snakeDirection            // vector {x, y}
+apples                    // táo đang có trên sân, có spawnTime để animate
+bombs                     // bom đang có trên sân, có spawnTime để animate
+explosions                // hiệu ứng nổ đang chạy
+appleQueue                // táo chờ spawn từ gift events
+score                     // +10 mỗi táo ăn
+totalGifts                // tổng repeatCount đã nhận
+winCount                  // số ván thắng
+lossCount                 // số ván thua
+gameLoopInterval          // interval tick
+resultCountdownTimer      // timer cho WIN/LOSS overlay
+fireworksAnimationId      // requestAnimationFrame id cho pháo bông
+useSerpentineWinMode      // đã chuyển sang serpentine win mode hay chưa
+colorThemeIndex           // index theme màu hiện tại
+currentTheme              // theme object đang dùng
+serpentineLooseGapCooldown // số tick strict còn lại sau khi mở khe
 ```
 
 ## HTML Structure Quan Trọng
@@ -102,8 +153,8 @@ useSerpentineWinMode  // đã chuyển sang serpentine win mode hay chưa
     #brand
     #connect-form
       #username-input
-      #connect-btn
-      #disconnect-btn
+      #connect-btn (icon: plug)
+      #disconnect-btn (icon: unplug)
     #connection-status
   #main-content
     #game-column
@@ -118,7 +169,12 @@ useSerpentineWinMode  // đã chuyển sang serpentine win mode hay chưa
       #gift-feed
     #side-panel
       #score-panel
+        .stat-card > #win-count / .stat-label "Wins"
+        .stat-card > #loss-count / .stat-label "Losses"
+        .stat-card > #snake-length / .stat-label "Snake Length"
       #chat-log
+        .chat-label "Chat TikTok"
+        #chat-messages
 ```
 
 `#death-overlay` dùng chung cho cả LOSS và WIN. Khi win, overlay có class `win`, bật `#fireworksCanvas`.
@@ -133,7 +189,7 @@ useSerpentineWinMode  // đã chuyển sang serpentine win mode hay chưa
 | `tiktok:connected` | `{username}` |
 | `tiktok:disconnected` | `{reason}` |
 | `tiktok:error` | `{message}` |
-| `tiktok:gift` | `{uniqueId, nickname, giftName, giftPictureUrl, diamondCount, repeatCount, appleCount, timestamp}` |
+| `tiktok:gift` | `{uniqueId, nickname, giftName, giftType, giftPictureUrl, diamondCount, repeatCount, appleCount, bombCount, timestamp}` |
 | `tiktok:chat` | `{uniqueId, nickname, comment, timestamp}` |
 
 ### REST
@@ -147,49 +203,67 @@ useSerpentineWinMode  // đã chuyển sang serpentine win mode hay chưa
 
 ## TikTok Gift Handling
 
-Trong `server.js`, gift chỉ được xử lý khi:
+Trong `server.js`, gift được xử lý khi:
 
 ```js
-data.repeatEnd
+data.repeatEnd || data.giftType !== 1
 ```
 
-Lý do: TikTok emit nhiều event khi streak đang chạy. Chỉ event cuối có `repeatEnd: true` và `repeatCount` chính xác. Bỏ điều kiện này sẽ đếm trùng gift.
+- `giftType === 1`: gift có streak (bấm giữ). Chỉ xử lý khi `repeatEnd` để lấy `repeatCount` chính xác.
+- `giftType !== 1`: gift không streak (tap đơn). Xử lý ngay vì không có streak event.
 
-Payload gift dùng:
+Kết nối dùng `enableExtendedGiftInfo: true` để nhận ảnh gift đầy đủ. `availableGifts` được lưu sau connect để resolve ảnh khi test local.
+
+Client nhận `tiktok:gift` và gọi `applyGiftEffect(data)`:
 
 ```js
-appleCount: data.repeatCount
+if (effect.action === 'color') cycleColorTheme();
+else if (effect.action === 'bomb') spawnBomb() × bombCount;
+else if (appleCount > 0) appleQueue += appleCount;
+
+totalGifts += repeatCount;
 ```
 
-Client nhận `tiktok:gift` và:
+## Bomb Mechanics
 
-```js
-appleQueue += data.appleCount;
-totalGifts += data.repeatCount;
-```
+- Khi rắn đi vào ô có bom: `createExplosion(bomb)`, xóa bom, rắn mất 2 segment (không xuống dưới `MIN_SNAKE_LENGTH = 3`).
+- Bom không gây chết. Chỉ cắt ngắn rắn.
+- Hiệu ứng nổ chạy `EXPLOSION_MS = 520ms`, render particle trong `drawExplosions()`.
+- `spawnItem()` dùng chung cho táo và bom, tránh đặt trùng vị trí.
 
 ## AI Hiện Tại
 
 Chi tiết đầy đủ nằm ở `AI_ALGORITHM.md`.
 
-Tóm tắt:
+### Tóm tắt luồng `getAIDirection()`:
 
-1. **Short mode** khi `snake.length < RANDOM_MOVE_UNTIL_LENGTH`
-   - Ưu tiên A* tới táo.
-   - Nếu không có đường, chọn candidate gần táo.
-   - Random rất nhẹ theo `SHORT_MODE_RANDOMNESS`.
+1. **Serpentine prep** (`SERPENTINE_PREP_LENGTH <= length < SERPENTINE_WIN_LENGTH`)
+   - Giảm `serpentineLooseGapCooldown` nếu còn.
+   - Random mở khe nhỏ (`getSerpentineTransitionDirection(false, { preferOpenGap: true })`), sau đó cooldown strict.
+   - Nếu chưa aligned, strict transition.
 
-2. **Hilbert mode**
-   - Dùng Hilbert curve làm cycle an toàn.
-   - Cho phép shortcut/A* nếu không phá khoảng an toàn giữa đầu và đuôi.
+2. **Serpentine win mode** (`length >= SERPENTINE_WIN_LENGTH`)
+   - Gọi `getSerpentineWinDirection()`.
+   - Nếu chưa aligned và non-strict: thử `getSafeAppleChaseDirection()` rồi transition.
+   - Nếu đã aligned và non-strict: A*/shortcut serpentine để bám táo.
+   - Nếu strict: chỉ shortcut/cycle serpentine.
 
-3. **Serpentine win mode** khi `snake.length >= SERPENTINE_WIN_LENGTH`
-   - Transition an toàn sang serpentine nếu thân chưa aligned.
-   - Playful serpentine trước `SERPENTINE_STRICT_LENGTH`.
-   - Strict serpentine từ `SERPENTINE_STRICT_LENGTH` để full map.
+3. **Short mode** (`length < RANDOM_MOVE_UNTIL_LENGTH`)
+   - `getRandomizedShortSnakeDirection()`.
+   - A* tới táo gần nhất.
+   - Fallback candidate theo Hilbert.
+   - Random nhẹ `SHORT_MODE_RANDOMNESS = 0.02`.
 
-4. **Survival fallback**
-   - Nếu các phase chính không có hướng tốt, chọn hướng có flood-fill space lớn nhất.
+4. **Apple chase midgame** (`APPLE_CHASE_LENGTH <= length < SERPENTINE_STRICT_LENGTH`)
+   - `getSafeAppleChaseDirection()`: A* đầy đủ qua `isPathSafe()`.
+
+5. **Hilbert mode** (sau các tier trên)
+   - `getHamiltonianShortcutDirection()`.
+   - `getAStarDirectionForCycle(isHamiltonianShortcutSafe)`.
+   - `getHamiltonianDirection()` (cycle thuần).
+
+6. **Survival fallback**
+   - `getSurvivalDirection()`: flood-fill, chọn hướng còn nhiều không gian nhất.
 
 ## Safety Logic Quan Trọng
 
@@ -222,6 +296,17 @@ Mô phỏng toàn bộ path:
 - Kiểm tra còn đường về đuôi.
 - Flood-fill để đảm bảo còn đủ không gian.
 
+### `isSimulatedMoveSafe()`
+
+Mô phỏng một nước đi rồi kiểm tra:
+
+- Có đường A* về đuôi.
+- Flood-fill đủ lớn so với chiều dài rắn.
+
+### `isLoosePrepMoveSafe()`
+
+Chỉ dùng cho prep loose-gap. Không bắt buộc path-to-tail, chỉ flood-fill đủ tối thiểu.
+
 ### `isCycleShortcutSafe()`
 
 Kiểm tra shortcut trên một cycle có vượt qua đuôi hoặc phá khoảng an toàn không.
@@ -233,23 +318,25 @@ Kiểm tra shortcut trên một cycle có vượt qua đuôi hoặc phá khoản
 
 ### `getSerpentineTransitionDirection()`
 
-Khi đã bật serpentine nhưng thân chưa aligned, hàm này mô phỏng từng hướng bằng `simulateMove()` và kiểm tra bằng `isSimulatedMoveSafe()` trước khi chọn hướng.
+Khi đã bật serpentine nhưng thân chưa aligned, hàm này mô phỏng từng hướng bằng `simulateMove()` và kiểm tra bằng `isSimulatedMoveSafe()` (hoặc `isLoosePrepMoveSafe()` khi `preferOpenGap`) trước khi chọn hướng.
 
 ## Result Overlay
 
 LOSS:
 
-- `handleSoftReset()`
+- `handleSoftReset()`.
 - Dừng game loop.
+- `lossCount++`.
 - Hiện overlay `LOSS`.
 - Countdown 5 giây.
-- Restart, giữ trạng thái táo hiện có.
+- Restart, giữ trạng thái táo/bom hiện có.
 
 WIN:
 
 - Khi `snake.length >= GRID_SIZE * GRID_SIZE`.
-- `handleWin()`
+- `handleWin()`.
 - Dừng game loop.
+- `winCount++`.
 - Hiện overlay `WIN`.
 - Countdown 10 giây.
 - Bật fireworks canvas.
@@ -257,26 +344,32 @@ WIN:
 
 ## UI Và Render
 
-- Canvas chính: `#gameCanvas`.
+- Canvas chính: `#gameCanvas`. Kích thước responsive theo `CELL_SIZE`.
 - Canvas pháo bông: `#fireworksCanvas`.
 - Táo có `spawnTime` để render bounce/ripple.
+- Bom có `spawnTime` để render scale-in và pulse animation.
+- Hiệu ứng nổ: `drawExplosions()` với shockwave và particle.
+- Rắn render gradient đầu → đuôi theo `currentTheme.rgb` → `currentTheme.tailRgb`.
 - Gift feed chỉ hiển thị một card mới nhất, nằm dưới canvas.
 - Chat prepend message mới, giữ tối đa 30 message.
-- Dữ liệu TikTok đưa vào DOM phải qua `escapeHtml()`.
+- Dữ liệu TikTok đưa vào DOM phải qua `escapeHtml()` / `escapeAttr()`.
+- Score panel hiển thị: Wins (`#win-count`), Losses (`#loss-count`), Snake Length (`#snake-length`).
+- Icon connect/disconnect dùng Lucide (`data-lucide="plug"` / `"unplug"`).
 
 ## Những Gì Không Nên Đổi Nhẹ Tay
 
-- `repeatEnd` trong gift handler.
+- `data.repeatEnd || data.giftType !== 1` trong gift handler (server.js).
 - Modulo wrap trong pathfinding.
 - `snakeBody.slice(0, -1)` trong A* và collision/survival.
 - `isPathSafe()` mô phỏng toàn path.
+- `isSimulatedMoveSafe()` / `isLoosePrepMoveSafe()` cho các nước đi một bước.
 - `isCycleShortcutSafe()` cho Hilbert/Serpentine shortcut.
 - `getSerpentineTransitionDirection()` trong phase chuyển sang win mode.
-- `escapeHtml()` với nickname/comment/gift data.
+- `escapeHtml()` / `escapeAttr()` với nickname/comment/gift data.
+- `MIN_SNAKE_LENGTH` trong bomb handling (tránh bug rắn về 0 segment).
 
 ## Bảo Mật
 
 - `tiktok-live-connector` là thư viện reverse-engineered, không chính thức.
 - Chỉ nên chạy local hoặc trong môi trường kiểm soát.
 - Không public service ra internet nếu chưa audit dependency và input handling.
-
