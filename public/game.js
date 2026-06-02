@@ -9,12 +9,13 @@ const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% di�
 const MAX_BOMBS = 50;
 const MIN_SNAKE_LENGTH = 3;
 const EXPLOSION_MS = 520;
+const FLOATING_TEXT_MS = 620;
 const GIFT_NOTIFICATION_MS = 1800;
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
 const APPLE_CHASE_LENGTH = 70;
-const SERPENTINE_PREP_LENGTH = 150;
+const SERPENTINE_PREP_LENGTH = 120;
 const SERPENTINE_WIN_LENGTH = 180;
 const SERPENTINE_STRICT_LENGTH = 220;
 const SERPENTINE_LOOSE_GAP_CHANCE = 0.18;
@@ -68,6 +69,7 @@ let snakeDirection = { x: 1, y: 0 };
 let apples = [];
 let bombs = [];
 let explosions = [];
+let floatingTexts = [];
 let appleQueue = 0;
 let score = 0;
 let totalGifts = 0;
@@ -91,6 +93,79 @@ const fireworksCanvas = document.getElementById('fireworksCanvas');
 fireworksCanvas.width = CANVAS_SIZE;
 fireworksCanvas.height = CANVAS_SIZE;
 const fireworksCtx = fireworksCanvas.getContext('2d');
+
+// ─── Sound Effects ────────────────────────────────────────────────────────────
+const SOUND_EFFECTS = {
+  apple: new Audio('/assets/music/effects/notification-bell-digital-ding-bosnow-1-00-01.mp3'),
+  bomb: new Audio('/assets/music/effects/stomp-close-box-bosnow-1-00-01.mp3')
+};
+const THEME_TRACKS = [
+  '/assets/music/themes/bit-shift-kevin-macleod-main-version-24901-03-12.mp3',
+  '/assets/music/themes/pixel-drift-pecan-pie-main-version-41106-02-09.mp3',
+  '/assets/music/themes/ready-set-drift-michael-grubb-main-version-24555-02-59.mp3'
+];
+let themeMusic = null;
+let themeTrackIndex = -1;
+let themeMusicStarted = false;
+
+Object.values(SOUND_EFFECTS).forEach(sound => {
+  sound.preload = 'auto';
+  sound.volume = 0.75;
+});
+SOUND_EFFECTS.apple.volume = 0.15;
+
+function playSoundEffect(type) {
+  const source = SOUND_EFFECTS[type];
+  if (!source) return;
+
+  const sound = source.cloneNode();
+  sound.volume = source.volume;
+  sound.play().catch(() => {
+    // Browsers can block audio until the first user interaction.
+  });
+}
+
+function getRandomThemeTrackIndex() {
+  if (THEME_TRACKS.length <= 1) return 0;
+
+  let nextIndex = themeTrackIndex;
+  while (nextIndex === themeTrackIndex) {
+    nextIndex = Math.floor(Math.random() * THEME_TRACKS.length);
+  }
+  return nextIndex;
+}
+
+function playThemeTrack(index = getRandomThemeTrackIndex()) {
+  if (THEME_TRACKS.length === 0) return;
+
+  if (themeMusic) {
+    themeMusic.pause();
+    themeMusic.removeEventListener('ended', playNextThemeTrack);
+  }
+
+  themeTrackIndex = index;
+  themeMusic = new Audio(THEME_TRACKS[themeTrackIndex]);
+  themeMusic.preload = 'auto';
+  themeMusic.volume = 0.35;
+  themeMusic.addEventListener('ended', playNextThemeTrack);
+
+  themeMusic.play()
+    .then(() => {
+      themeMusicStarted = true;
+    })
+    .catch(() => {
+      themeMusicStarted = false;
+    });
+}
+
+function playNextThemeTrack() {
+  playThemeTrack(getRandomThemeTrackIndex());
+}
+
+function startThemeMusic() {
+  if (themeMusicStarted) return;
+  playThemeTrack();
+}
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
 function applyColorTheme() {
@@ -120,6 +195,7 @@ function initGame() {
   apples = [];
   bombs = [];
   explosions = [];
+  floatingTexts = [];
   appleQueue = 0;
   score = 0;
   useSerpentineWinMode = false;
@@ -172,6 +248,8 @@ function tick() {
 
   snake.unshift(newHead);
   if (ateApple) {
+    createFloatingText(newHead, '+', '#22ff88');
+    playSoundEffect('apple');
     apples.splice(appleIndex, 1);
     score += 10;
     if (snake.length >= GRID_SIZE * GRID_SIZE) {
@@ -182,6 +260,8 @@ function tick() {
     }
     if (apples.length === 0 && appleQueue === 0) spawnApple();
   } else if (ateBomb) {
+    createFloatingText(newHead, '-', '#ff3b4f');
+    playSoundEffect('bomb');
     createExplosion(bombs[bombIndex]);
     bombs.splice(bombIndex, 1);
     snake.pop();
@@ -251,6 +331,7 @@ function restartGame() {
   ];
   snakeDirection = { x: 0, y: -1 };
   explosions = [];
+  floatingTexts = [];
   useSerpentineWinMode = false;
   serpentineLooseGapCooldown = 0;
   if (apples.length === 0) spawnApple();
@@ -904,6 +985,18 @@ function createExplosion(cell) {
   });
 }
 
+function createFloatingText(cell, text, color) {
+  if (!cell) return;
+
+  floatingTexts.push({
+    x: cell.x * CELL_SIZE + CELL_SIZE / 2,
+    y: cell.y * CELL_SIZE + CELL_SIZE / 2,
+    text,
+    color,
+    startTime: Date.now()
+  });
+}
+
 // Easing: scale từ 0 lên hơi quá 1 rồi về 1 (bounce nhẹ)
 function easeOutBack(t) {
   const c = 1.70158;
@@ -1313,6 +1406,7 @@ function render() {
   drawEyes(snake[0], snakeDirection);
 
   drawExplosions();
+  drawFloatingTexts();
 }
 
 function drawExplosions() {
@@ -1347,6 +1441,35 @@ function drawExplosions() {
       ctx.fill();
     });
 
+    ctx.restore();
+  });
+}
+
+function drawFloatingTexts() {
+  const now = Date.now();
+  floatingTexts = floatingTexts.filter(item => now - item.startTime < FLOATING_TEXT_MS);
+
+  floatingTexts.forEach(item => {
+    const age = now - item.startTime;
+    const t = Math.min(age / FLOATING_TEXT_MS, 1);
+    const alpha = 1 - t;
+    const y = item.y - CELL_SIZE * 1.25 * t;
+    const scale = 0.85 + 0.35 * Math.sin(Math.min(t * Math.PI, Math.PI));
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(item.x, y);
+    ctx.scale(scale, scale);
+    ctx.font = `700 ${Math.max(16, Math.floor(CELL_SIZE * 0.78))}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(8, 10, 18, 0.82)';
+    ctx.shadowColor = item.color;
+    ctx.shadowBlur = 12;
+    ctx.strokeText(item.text, 0, 0);
+    ctx.fillStyle = item.color;
+    ctx.fillText(item.text, 0, 0);
     ctx.restore();
   });
 }
@@ -1612,6 +1735,8 @@ document.getElementById('username-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('connect-btn').click();
 });
 
+document.addEventListener('pointerdown', startThemeMusic, { once: true });
+
 async function sendTestGift(giftType) {
   const gift = TEST_GIFTS[giftType];
   if (!gift) return;
@@ -1630,8 +1755,13 @@ async function sendTestGift(giftType) {
 }
 
 document.addEventListener('keydown', async (e) => {
-  if (e.key.toLowerCase() === 'q' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+  const isTyping = ['INPUT', 'TEXTAREA'].includes(e.target.tagName);
+  if (!isTyping) startThemeMusic();
+
+  if (e.key.toLowerCase() === 'q' && !isTyping) {
     cycleColorTheme();
+  } else if (e.key.toLowerCase() === 'e' && !isTyping) {
+    playNextThemeTrack();
   } else if (e.key === '1') {
     await sendTestGift('rose');
   } else if (e.key === '2') {
