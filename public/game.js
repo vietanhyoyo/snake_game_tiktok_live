@@ -38,13 +38,27 @@ const TEST_GIFTS = {
     giftType: 'rose',
     giftName: 'Hoa hồng',
     displayName: 'Rose',
-    appleCount: 1
+    appleCount: 5
   },
   heart: {
     giftType: 'heart',
     giftName: 'Bắn tim',
     displayName: 'Finger Heart',
-    appleCount: 5
+    appleCount: 10
+  },
+  doubleHeart: {
+    giftType: 'double_heart',
+    giftName: 'Trái tim đội',
+    displayName: 'Team Heart',
+    appleCount: 0,
+    action: 'color'
+  },
+  follow: {
+    giftType: 'follow',
+    giftName: 'Follow',
+    displayName: 'Follow',
+    appleCount: 0,
+    action: 'color'
   },
   pig: {
     giftType: 'pig',
@@ -58,7 +72,7 @@ const TEST_GIFTS = {
     giftName: 'TikTok',
     displayName: 'TikTok',
     appleCount: 0,
-    bombCount: 1,
+    bombCount: 3,
     action: 'bomb'
   }
 };
@@ -73,6 +87,7 @@ let floatingTexts = [];
 let appleQueue = 0;
 let score = 0;
 let totalGifts = 0;
+let totalHearts = 0;
 let winCount = 0;
 let lossCount = 0;
 let gameLoopInterval = null;
@@ -1503,11 +1518,13 @@ function updateUI() {
   document.getElementById('win-count').textContent = winCount;
   document.getElementById('loss-count').textContent = lossCount;
   document.getElementById('snake-length').textContent = snake.length;
+  document.getElementById('heart-count').textContent = totalHearts.toLocaleString();
 }
 
 function setUIState(state, info = '') {
   const dot  = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
+  const connectForm = document.getElementById('connect-form');
   const connectBtn = document.getElementById('connect-btn');
   const disconnectBtn = document.getElementById('disconnect-btn');
   const input = document.getElementById('username-input');
@@ -1518,6 +1535,7 @@ function setUIState(state, info = '') {
     case 'connecting':
       dot.classList.add('dot-yellow');
       text.textContent = `Connecting @${info}...`;
+      connectForm.hidden = false;
       input.hidden = false;
       connectBtn.hidden = false;
       disconnectBtn.hidden = false;
@@ -1528,16 +1546,18 @@ function setUIState(state, info = '') {
     case 'connected':
       dot.classList.add('dot-green');
       text.textContent = `Connected @${String(info).replace(/^@/, '')}`;
+      connectForm.hidden = true;
       input.hidden = true;
       connectBtn.hidden = true;
-      disconnectBtn.hidden = false;
+      disconnectBtn.hidden = true;
       connectBtn.disabled = true;
-      disconnectBtn.disabled = false;
+      disconnectBtn.disabled = true;
       input.disabled = true;
       break;
     case 'error':
       dot.classList.add('dot-red');
       text.textContent = `Error: ${info}`;
+      connectForm.hidden = false;
       input.hidden = false;
       connectBtn.hidden = false;
       disconnectBtn.hidden = false;
@@ -1548,6 +1568,7 @@ function setUIState(state, info = '') {
     default:
       dot.classList.add('dot-gray');
       text.textContent = 'Disconnected';
+      connectForm.hidden = false;
       input.hidden = false;
       connectBtn.hidden = false;
       disconnectBtn.hidden = false;
@@ -1575,12 +1596,22 @@ function normalizeGiftName(data) {
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
 }
 
 function getGiftEffect(data) {
   const normalized = normalizeGiftName(data);
   if (normalized.includes('rose') || normalized.includes('hoa hong')) return TEST_GIFTS.rose;
+  if (
+    (normalized.includes('tim') && normalized.includes('doi')) ||
+    (normalized.includes('team') && normalized.includes('heart')) ||
+    normalized.includes('tim doi') ||
+    normalized.includes('qua tim doi') ||
+    normalized.includes('double heart') ||
+    normalized.includes('team heart')
+  ) return TEST_GIFTS.doubleHeart;
+  if (normalized.includes('follow')) return TEST_GIFTS.follow;
   if (normalized.includes('heart') || normalized.includes('ban tim') || normalized.includes('tim')) return TEST_GIFTS.heart;
   if (normalized.includes('pig') || normalized.includes('chu heo may') || normalized.includes('heo')) return TEST_GIFTS.pig;
   if (normalized.includes('tiktok') || normalized.includes('tik tok')) return TEST_GIFTS.tiktok;
@@ -1674,30 +1705,58 @@ function showGiftNotification(data) {
 
 function applyGiftEffect(data) {
   const effect = getGiftEffect(data);
-  const appleCount = Number(data.appleCount ?? effect.appleCount) || 0;
+  const repeatCount = Number(data.repeatCount) || 1;
+  const isMappedGift = effect.giftType !== 'default';
+  const appleCount = isMappedGift
+    ? (Number(effect.appleCount) || 0) * repeatCount
+    : Number(data.appleCount ?? effect.appleCount) || 0;
+  const bombCount = isMappedGift
+    ? (Number(effect.bombCount) || 0) * repeatCount
+    : Number(data.bombCount ?? effect.bombCount) || 0;
 
   if (effect.action === 'color') {
     cycleColorTheme();
   } else if (effect.action === 'bomb') {
-    const bombCount = Number(data.bombCount ?? effect.bombCount) || 1;
-    for (let i = 0; i < bombCount; i++) spawnBomb();
+    for (let i = 0; i < Math.max(1, bombCount); i++) spawnBomb();
   } else if (appleCount > 0) {
     appleQueue += appleCount;
   }
 
-  totalGifts += Number(data.repeatCount) || 1;
-  showGiftNotification({ ...data, appleCount, bombCount: data.bombCount ?? effect.bombCount, displayName: effect.displayName });
+  totalGifts += repeatCount;
+  showGiftNotification({ ...data, appleCount, bombCount, displayName: effect.displayName });
   updateUI();
 }
 
-// ─── Chat ─────────────────────────────────────────────────────────────────────
-function addChatMessage(data) {
-  const container = document.getElementById('chat-messages');
-  const msg = document.createElement('div');
-  msg.className = 'chat-msg';
-  msg.innerHTML = `<span class="chat-user">${escapeHtml(data.nickname)}:</span> ${escapeHtml(data.comment)}`;
-  container.prepend(msg);
-  while (container.children.length > 30) container.removeChild(container.lastChild);
+function applyLikeReward(data) {
+  const appleCount = Number(data.appleCount) || 0;
+  if (appleCount <= 0) return;
+
+  totalHearts = Number(data.likeCount) || totalHearts;
+  appleQueue += appleCount;
+  showGiftNotification({
+    ...data,
+    giftName: 'Tap tim',
+    displayName: `${data.threshold || 1000} hearts`,
+    appleCount
+  });
+  updateUI();
+}
+
+function updateHeartCount(data) {
+  totalHearts = Number(data.likeCount) || totalHearts;
+  updateUI();
+}
+
+function applyFollowEffect(data) {
+  cycleColorTheme();
+  showGiftNotification({
+    ...data,
+    giftName: 'Follow',
+    displayName: 'Follow',
+    giftType: 'follow',
+    appleCount: 0
+  });
+  updateUI();
 }
 
 // ─── Control Buttons ──────────────────────────────────────────────────────────
@@ -1726,10 +1785,12 @@ document.getElementById('connect-btn').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('disconnect-btn').addEventListener('click', async () => {
+async function disconnectTikTok() {
   await fetch('/disconnect', { method: 'POST' });
   setUIState('disconnected');
-});
+}
+
+document.getElementById('disconnect-btn').addEventListener('click', disconnectTikTok);
 
 document.getElementById('username-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('connect-btn').click();
@@ -1747,11 +1808,23 @@ async function sendTestGift(giftType) {
     body: JSON.stringify({
       giftType,
       giftName: gift.giftName,
-      count: gift.appleCount || 1,
+      count: 1,
       appleCount: gift.appleCount,
       bombCount: gift.bombCount || 0
     })
   });
+}
+
+async function sendTestLike(likeCount) {
+  await fetch('/test-like', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ likeCount })
+  });
+}
+
+async function sendTestFollow() {
+  await fetch('/test-follow', { method: 'POST' });
 }
 
 document.addEventListener('keydown', async (e) => {
@@ -1762,6 +1835,8 @@ document.addEventListener('keydown', async (e) => {
     cycleColorTheme();
   } else if (e.key.toLowerCase() === 'e' && !isTyping) {
     playNextThemeTrack();
+  } else if (e.key.toLowerCase() === 'r' && !isTyping) {
+    await disconnectTikTok();
   } else if (e.key === '1') {
     await sendTestGift('rose');
   } else if (e.key === '2') {
@@ -1770,6 +1845,14 @@ document.addEventListener('keydown', async (e) => {
     await sendTestGift('pig');
   } else if (e.key === '4') {
     await sendTestGift('tiktok');
+  } else if (e.key === '5') {
+    await sendTestLike(200);
+  } else if (e.key === '6') {
+    await sendTestLike(20);
+  } else if (e.key === '7') {
+    await sendTestFollow();
+  } else if (e.key === '8') {
+    await sendTestGift('doubleHeart');
   }
 });
 
@@ -1782,10 +1865,14 @@ socket.on('tiktok:status', (data) => {
 });
 
 socket.on('tiktok:connected', (data) => {
+  totalHearts = 0;
+  updateUI();
   setUIState('connected', data.username);
 });
 
 socket.on('tiktok:disconnected', () => {
+  totalHearts = 0;
+  updateUI();
   setUIState('disconnected');
 });
 
@@ -1797,8 +1884,16 @@ socket.on('tiktok:gift', (data) => {
   applyGiftEffect(data);
 });
 
-socket.on('tiktok:chat', (data) => {
-  addChatMessage(data);
+socket.on('tiktok:like', (data) => {
+  updateHeartCount(data);
+});
+
+socket.on('tiktok:likeReward', (data) => {
+  applyLikeReward(data);
+});
+
+socket.on('tiktok:follow', (data) => {
+  applyFollowEffect(data);
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────

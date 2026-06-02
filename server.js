@@ -6,6 +6,8 @@ import { WebcastPushConnection } from 'tiktok-live-connector';
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: '*' } });
+const LIKE_APPLE_THRESHOLD = 1000;
+const LIKE_APPLE_REWARD = 10;
 
 app.use(express.static('public'));
 app.use(express.json());
@@ -13,6 +15,8 @@ app.use(express.json());
 let tiktokConnection = null;
 let currentUsername = null;
 let availableGifts = [];
+let totalLikeCount = 0;
+let rewardedLikeMilestones = 0;
 
 function normalizeGiftName(name = '') {
   return String(name)
@@ -107,11 +111,42 @@ function attachTikTokListeners(connection) {
     }
   });
 
-  connection.on('chat', (data) => {
-    io.emit('tiktok:chat', {
+  connection.on('like', (data) => {
+    const incomingTotal = Number(data.totalLikeCount ?? data.totalLikes ?? 0);
+    const likeDelta = Number(data.likeCount ?? 0);
+
+    if (incomingTotal > totalLikeCount) {
+      totalLikeCount = incomingTotal;
+    } else if (likeDelta > 0) {
+      totalLikeCount += likeDelta;
+    }
+
+    io.emit('tiktok:like', {
       uniqueId: data.uniqueId,
       nickname: data.nickname,
-      comment: data.comment,
+      likeCount: totalLikeCount,
+      timestamp: Date.now()
+    });
+
+    const milestones = Math.floor(totalLikeCount / LIKE_APPLE_THRESHOLD);
+    const newMilestones = milestones - rewardedLikeMilestones;
+    if (newMilestones <= 0) return;
+
+    rewardedLikeMilestones = milestones;
+    io.emit('tiktok:likeReward', {
+      uniqueId: data.uniqueId,
+      nickname: data.nickname,
+      likeCount: totalLikeCount,
+      appleCount: newMilestones * LIKE_APPLE_REWARD,
+      threshold: LIKE_APPLE_THRESHOLD,
+      timestamp: Date.now()
+    });
+  });
+
+  connection.on('follow', (data) => {
+    io.emit('tiktok:follow', {
+      uniqueId: data.uniqueId,
+      nickname: data.nickname,
       timestamp: Date.now()
     });
   });
@@ -120,6 +155,8 @@ function attachTikTokListeners(connection) {
     console.log(`[TikTok] Disconnected from @${currentUsername}`);
     tiktokConnection = null;
     currentUsername = null;
+    totalLikeCount = 0;
+    rewardedLikeMilestones = 0;
     io.emit('tiktok:disconnected', { reason: 'stream_ended' });
   });
 
@@ -133,6 +170,8 @@ function attachTikTokListeners(connection) {
     io.emit('tiktok:disconnected', { reason: 'stream_ended' });
     tiktokConnection = null;
     currentUsername = null;
+    totalLikeCount = 0;
+    rewardedLikeMilestones = 0;
   });
 }
 
@@ -148,6 +187,8 @@ app.post('/connect', async (req, res) => {
     try { tiktokConnection.disconnect(); } catch (_) {}
     tiktokConnection = null;
   }
+  totalLikeCount = 0;
+  rewardedLikeMilestones = 0;
 
   try {
     const connection = new WebcastPushConnection(cleanUsername, {
@@ -176,6 +217,8 @@ app.post('/disconnect', (req, res) => {
   const prev = currentUsername;
   currentUsername = null;
   availableGifts = [];
+  totalLikeCount = 0;
+  rewardedLikeMilestones = 0;
   io.emit('tiktok:disconnected', { reason: 'manual' });
   console.log(`[TikTok] Manually disconnected from @${prev}`);
   res.json({ status: 'disconnected' });
@@ -209,6 +252,49 @@ app.post('/test-gift', (req, res) => {
   };
   io.emit('tiktok:gift', gift);
   res.json({ ok: true, gift });
+});
+
+// Dev endpoint: simulate TikTok tap-heart milestones without a real livestream
+app.post('/test-like', (req, res) => {
+  const likeCount = Number(req.body?.likeCount ?? req.body?.count ?? LIKE_APPLE_THRESHOLD);
+  if (likeCount > 0) totalLikeCount += likeCount;
+
+  const milestones = Math.floor(totalLikeCount / LIKE_APPLE_THRESHOLD);
+  const newMilestones = milestones - rewardedLikeMilestones;
+  const like = {
+    uniqueId: 'test_viewer',
+    nickname: 'Test Viewer',
+    likeCount: totalLikeCount,
+    timestamp: Date.now()
+  };
+  const reward = {
+    uniqueId: like.uniqueId,
+    nickname: like.nickname,
+    likeCount: totalLikeCount,
+    appleCount: Math.max(0, newMilestones) * LIKE_APPLE_REWARD,
+    threshold: LIKE_APPLE_THRESHOLD,
+    timestamp: Date.now()
+  };
+
+  io.emit('tiktok:like', like);
+
+  if (newMilestones > 0) {
+    rewardedLikeMilestones = milestones;
+    io.emit('tiktok:likeReward', reward);
+  }
+
+  res.json({ ok: true, reward });
+});
+
+// Dev endpoint: simulate a TikTok follow without a real livestream
+app.post('/test-follow', (req, res) => {
+  const follow = {
+    uniqueId: 'test_viewer',
+    nickname: 'Test Viewer',
+    timestamp: Date.now()
+  };
+  io.emit('tiktok:follow', follow);
+  res.json({ ok: true, follow });
 });
 
 io.on('connection', (socket) => {

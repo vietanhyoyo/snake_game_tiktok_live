@@ -33,27 +33,32 @@ npm run dev
 2. Nhập TikTok username đang live, có thể nhập `@username` hoặc `username`.
 3. Nhấn nút plug để kết nối.
 4. Khi viewer tặng quà, game nhận gift và thêm táo vào sân.
-5. Nhấn nút unplug để ngắt kết nối.
+5. Khi livestream đạt mỗi mốc 1000 tap tim, game thêm 10 táo.
+6. Khi đã kết nối, form kết nối được ẩn; nhấn phím `r` để ngắt kết nối.
 
 ## Test Không Cần Livestream
 
 Trong browser:
 
-- Nhấn phím `1` để giả lập Hoa hồng, thêm 1 táo.
-- Nhấn phím `2` để giả lập Bắn tim, thêm 5 táo.
+- Nhấn phím `1` để giả lập Hoa hồng, thêm 5 táo.
+- Nhấn phím `2` để giả lập Bắn tim/Finger Heart, thêm 10 táo.
 - Nhấn phím `3` để giả lập Chú heo may mắn, đổi màu rắn.
-- Nhấn phím `4` để giả lập TikTok, thêm 1 bom.
+- Nhấn phím `4` để giả lập TikTok, thêm 3 bom.
+- Nhấn phím `5` để giả lập 200 tim.
+- Nhấn phím `6` để giả lập 20 tim.
+- Nhấn phím `7` để giả lập follow, đổi màu rắn.
+- Nhấn phím `8` để giả lập quà Trái tim đội, đổi màu rắn.
 
 Hoặc dùng REST API:
 
 ```bash
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
-  -d '{"count": 1, "giftName": "Hoa hồng", "giftType": "rose", "appleCount": 1}'
+  -d '{"count": 1, "giftName": "Hoa hồng", "giftType": "rose", "appleCount": 5}'
 
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
-  -d '{"count": 1, "giftName": "Bắn tim", "giftType": "heart", "appleCount": 5}'
+  -d '{"count": 1, "giftName": "Bắn tim", "giftType": "heart", "appleCount": 10}'
 
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
@@ -61,7 +66,18 @@ curl -X POST http://localhost:3000/test-gift \
 
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
-  -d '{"count": 1, "giftName": "TikTok", "giftType": "tiktok", "appleCount": 0, "bombCount": 1}'
+  -d '{"count": 1, "giftName": "TikTok", "giftType": "tiktok", "appleCount": 0, "bombCount": 3}'
+
+curl -X POST http://localhost:3000/test-like \
+  -H "Content-Type: application/json" \
+  -d '{"likeCount": 1000}'
+
+curl -X POST http://localhost:3000/test-follow \
+  -H "Content-Type: application/json"
+
+curl -X POST http://localhost:3000/test-gift \
+  -H "Content-Type: application/json" \
+  -d '{"count": 1, "giftName": "Trái tim đội", "giftType": "double_heart", "appleCount": 0}'
 ```
 
 Ảnh quà trong test sẽ hiện khi request có `giftPictureUrl`, hoặc sau khi app đã kết nối live và server lấy được danh sách gift của TikTok để map theo `giftName`.
@@ -107,8 +123,11 @@ snake_game_tiktok_live/
 | Tính năng | Mô tả |
 |---|---|
 | TikTok gift -> táo | Gift hoàn tất streak sẽ tạo số táo theo `repeatCount`. |
+| TikTok tap tim -> táo | Mỗi 1000 tim tạo 10 táo. |
+| TikTok follow -> đổi màu | Mỗi follow đổi màu rắn. |
+| Gift Trái tim đội -> đổi màu | Quà Trái tim đội đổi màu rắn. |
 | Apple queue | Gift nhiều táo được đưa vào queue và spawn dần theo tick. |
-| TikTok gift -> bom | Gift TikTok tạo 1 bom; rắn ăn bom bị giảm 1 độ dài, tối thiểu 3. |
+| TikTok gift -> bom | Gift TikTok tạo 3 bom; rắn ăn bom bị giảm 1 độ dài, tối thiểu 3. |
 | AI nhiều phase | Short mode, Hilbert mode, Serpentine playful, Serpentine strict. |
 | Xuyên tường | Rắn wrap qua biên lưới thay vì chết khi chạm tường. |
 | Safety checks | A*, flood-fill, path simulation, tail reachability và cycle shortcut safety. |
@@ -116,7 +135,6 @@ snake_game_tiktok_live/
 | Win state | Khi rắn đạt đủ 256 ô, hiện `WIN`, đếm ngược 10 giây và bắn pháo bông. |
 | Apple animation | Táo có hiệu ứng scale bounce và ripple khi xuất hiện. |
 | Gift notification | Hiển thị người tặng, ảnh quà từ `giftPictureUrl` của TikTok và số táo dưới canvas. |
-| Chat log | Chat TikTok hiển thị realtime trong side panel. |
 
 ## AI Hiện Tại
 
@@ -157,6 +175,8 @@ length >= SERPENTINE_WIN_LENGTH
 | `POST` | `/disconnect` | Ngắt kết nối TikTok Live hiện tại. |
 | `GET` | `/status` | Trả về trạng thái kết nối hiện tại. |
 | `POST` | `/test-gift` | Giả lập gift. Body: `{"count": N, "giftName": "...", "giftType": "...", "appleCount": N, "bombCount": N, "giftPictureUrl": "..."}` |
+| `POST` | `/test-like` | Giả lập tap tim. Body: `{"likeCount": N}`. Mỗi 1000 tim cộng 10 táo. |
+| `POST` | `/test-follow` | Giả lập follow, dùng để đổi màu rắn. |
 
 ## Socket.io Events
 
@@ -169,7 +189,9 @@ Server emit các event sau sang browser:
 | `tiktok:disconnected` | Đã ngắt kết nối hoặc stream kết thúc. |
 | `tiktok:error` | Lỗi kết nối/live connector. |
 | `tiktok:gift` | Gift hoàn tất streak, dùng để cộng táo. |
-| `tiktok:chat` | Tin nhắn chat realtime. |
+| `tiktok:like` | Số tap tim realtime, dùng để hiển thị tổng tim. |
+| `tiktok:likeReward` | Mốc tap tim, dùng để cộng táo. |
+| `tiktok:follow` | Follow mới, dùng để đổi màu rắn. |
 
 ## Bảo Mật Và Giới Hạn
 
