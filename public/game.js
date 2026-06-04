@@ -1,9 +1,7 @@
 // ─── Constants ───────────────────────────────────────────────────────────────
 const GRID_SIZE = 16;
-// Fill available screen width (phone: ~23px/cell → 368px canvas; desktop: capped at 30px → 480px)
-// Giới hạn theo phone width tối đa 460px để layout luôn dọc
-const CELL_SIZE = Math.min(28, Math.max(18, Math.floor((Math.min(window.innerWidth, 460) - 16) / GRID_SIZE)));
-const CANVAS_SIZE = GRID_SIZE * CELL_SIZE;
+const CANVAS_SIZE = 340;
+const CELL_SIZE = CANVAS_SIZE / GRID_SIZE;
 const BASE_TICK_MS = 60;
 const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% diện tích lưới
 const MAX_BOMBS = 50;
@@ -122,6 +120,7 @@ const THEME_TRACKS = [
 let themeMusic = null;
 let themeTrackIndex = -1;
 let themeMusicStarted = false;
+let themeMusicMuted = false;
 
 Object.values(SOUND_EFFECTS).forEach(sound => {
   sound.preload = 'auto';
@@ -164,6 +163,11 @@ function playThemeTrack(index = getRandomThemeTrackIndex()) {
   themeMusic.volume = 0.35;
   themeMusic.addEventListener('ended', playNextThemeTrack);
 
+  if (themeMusicMuted) {
+    themeMusicStarted = false;
+    return;
+  }
+
   themeMusic.play()
     .then(() => {
       themeMusicStarted = true;
@@ -178,8 +182,32 @@ function playNextThemeTrack() {
 }
 
 function startThemeMusic() {
-  if (themeMusicStarted) return;
+  if (themeMusicMuted || themeMusicStarted) return;
+
+  if (themeMusic) {
+    themeMusic.play()
+      .then(() => {
+        themeMusicStarted = true;
+      })
+      .catch(() => {
+        themeMusicStarted = false;
+      });
+    return;
+  }
+
   playThemeTrack();
+}
+
+function toggleThemeMusic() {
+  themeMusicMuted = !themeMusicMuted;
+
+  if (themeMusicMuted) {
+    if (themeMusic) themeMusic.pause();
+    themeMusicStarted = false;
+    return;
+  }
+
+  startThemeMusic();
 }
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
@@ -1517,7 +1545,6 @@ function drawEyes(head, dir) {
 function updateUI() {
   document.getElementById('win-count').textContent = winCount;
   document.getElementById('loss-count').textContent = lossCount;
-  document.getElementById('snake-length').textContent = snake.length;
   document.getElementById('heart-count').textContent = totalHearts.toLocaleString();
 }
 
@@ -1829,13 +1856,20 @@ async function sendTestFollow() {
 
 document.addEventListener('keydown', async (e) => {
   const isTyping = ['INPUT', 'TEXTAREA'].includes(e.target.tagName);
+  const key = e.key.toLowerCase();
+
+  if (key === 't' && !isTyping) {
+    toggleThemeMusic();
+    return;
+  }
+
   if (!isTyping) startThemeMusic();
 
-  if (e.key.toLowerCase() === 'q' && !isTyping) {
+  if (key === 'q' && !isTyping) {
     cycleColorTheme();
-  } else if (e.key.toLowerCase() === 'e' && !isTyping) {
+  } else if (key === 'e' && !isTyping) {
     playNextThemeTrack();
-  } else if (e.key.toLowerCase() === 'r' && !isTyping) {
+  } else if (key === 'r' && !isTyping) {
     await disconnectTikTok();
   } else if (e.key === '1') {
     await sendTestGift('rose');

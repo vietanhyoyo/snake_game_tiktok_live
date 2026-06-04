@@ -35,6 +35,7 @@ npm run dev
 4. Khi viewer tặng quà, game nhận gift và thêm táo vào sân.
 5. Khi livestream đạt mỗi mốc 1000 tap tim, game thêm 10 táo.
 6. Khi đã kết nối, form kết nối được ẩn; nhấn phím `r` để ngắt kết nối.
+7. Nhấn phím `t` để tắt nhạc nền, nhấn lại `t` để mở nhạc.
 
 ## Test Không Cần Livestream
 
