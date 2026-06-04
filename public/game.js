@@ -1,6 +1,6 @@
 // ─── Constants ───────────────────────────────────────────────────────────────
 const GRID_SIZE = 16;
-const CANVAS_SIZE = 340;
+const CANVAS_SIZE = 392;
 const CELL_SIZE = CANVAS_SIZE / GRID_SIZE;
 const BASE_TICK_MS = 60;
 const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% diện tích lưới
@@ -98,14 +98,27 @@ let currentTheme = COLOR_THEMES[colorThemeIndex];
 let serpentineLooseGapCooldown = 0;
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
+function createSharpCanvasContext(canvasElement) {
+  const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+  canvasElement.width = Math.round(CANVAS_SIZE * pixelRatio);
+  canvasElement.height = Math.round(CANVAS_SIZE * pixelRatio);
+
+  const context = canvasElement.getContext('2d');
+  context.setTransform(
+    canvasElement.width / CANVAS_SIZE,
+    0,
+    0,
+    canvasElement.height / CANVAS_SIZE,
+    0,
+    0
+  );
+  return context;
+}
+
 const canvas = document.getElementById('gameCanvas');
-canvas.width = CANVAS_SIZE;
-canvas.height = CANVAS_SIZE;
-const ctx = canvas.getContext('2d');
+const ctx = createSharpCanvasContext(canvas);
 const fireworksCanvas = document.getElementById('fireworksCanvas');
-fireworksCanvas.width = CANVAS_SIZE;
-fireworksCanvas.height = CANVAS_SIZE;
-const fireworksCtx = fireworksCanvas.getContext('2d');
+const fireworksCtx = createSharpCanvasContext(fireworksCanvas);
 
 // ─── Sound Effects ────────────────────────────────────────────────────────────
 const SOUND_EFFECTS = {
@@ -113,10 +126,11 @@ const SOUND_EFFECTS = {
   bomb: new Audio('/assets/music/effects/stomp-close-box-bosnow-1-00-01.mp3')
 };
 const THEME_TRACKS = [
-  '/assets/music/themes/bit-shift-kevin-macleod-main-version-24901-03-12.mp3',
-  '/assets/music/themes/pixel-drift-pecan-pie-main-version-41106-02-09.mp3',
-  '/assets/music/themes/ready-set-drift-michael-grubb-main-version-24555-02-59.mp3'
-];
+  "CORTIS (코르티스) 'REDRED' Instrumental.mp3",
+  "ILLIT - It's Me  Official Instrumental.mp3",
+  'LE SSERAFIM - BOOMPALA (Instrumental).mp3',
+  'NOT CUTE ANYMORE (Instrumental).mp3'
+].map(fileName => encodeURI(`/assets/music/otherthemes/${fileName}`));
 let themeMusic = null;
 let themeTrackIndex = -1;
 let themeMusicStarted = false;
