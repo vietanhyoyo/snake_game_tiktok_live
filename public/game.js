@@ -123,11 +123,15 @@ const fireworksCtx = createSharpCanvasContext(fireworksCanvas);
 // ─── Sound Effects ────────────────────────────────────────────────────────────
 const SOUND_EFFECTS = {
   apple: new Audio('/assets/music/effects/notification-bell-digital-ding-bosnow-1-00-01.mp3'),
-  bomb: new Audio('/assets/music/effects/stomp-close-box-bosnow-1-00-01.mp3')
+  bomb: new Audio('/assets/music/effects/stomp-close-box-bosnow-1-00-01.mp3'),
+  result: new Audio('/assets/music/effects/wingame.mp3')
 };
 const THEME_TRACKS = [
   "CORTIS (코르티스) 'REDRED' Instrumental.mp3",
   "ILLIT - It's Me  Official Instrumental.mp3",
+  'aespa - LEMONADE  Instrumental.mp3',
+  "BABYMONSTER - '춤 (CHOOM)'  Instrumental.mp3",
+  'Hearts2Hearts  RUDE!  Instrumental.mp3',
   'LE SSERAFIM - BOOMPALA (Instrumental).mp3',
   'NOT CUTE ANYMORE (Instrumental).mp3'
 ].map(fileName => encodeURI(`/assets/music/otherthemes/${fileName}`));
@@ -336,6 +340,7 @@ function handleSoftReset() {
     clearInterval(gameLoopInterval);
     gameLoopInterval = null;
   }
+  playSoundEffect('result');
   lossCount++;
   render();
   updateUI();
@@ -347,6 +352,7 @@ function handleWin() {
     clearInterval(gameLoopInterval);
     gameLoopInterval = null;
   }
+  playSoundEffect('result');
   winCount++;
   updateUI();
   startResultCountdown('win', 10);
@@ -1586,7 +1592,7 @@ function setUIState(state, info = '') {
       break;
     case 'connected':
       dot.classList.add('dot-green');
-      text.textContent = `Connected @${String(info).replace(/^@/, '')}`;
+      text.textContent = `${String(info).replace(/^@/, '')}`;
       connectForm.hidden = true;
       input.hidden = true;
       connectBtn.hidden = true;
@@ -1777,7 +1783,21 @@ function applyLikeReward(data) {
   showGiftNotification({
     ...data,
     giftName: 'Tap tim',
-    displayName: `${data.threshold || 1000} hearts`,
+    displayName: `${data.threshold || 500} hearts`,
+    appleCount
+  });
+  updateUI();
+}
+
+function applyCommentReward(data) {
+  const appleCount = Number(data.appleCount) || 0;
+  if (appleCount <= 0) return;
+
+  appleQueue += appleCount;
+  showGiftNotification({
+    ...data,
+    giftName: 'Comment',
+    displayName: 'Comment',
     appleCount
   });
   updateUI();
@@ -1864,6 +1884,14 @@ async function sendTestLike(likeCount) {
   });
 }
 
+async function sendTestChat() {
+  await fetch('/test-chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comment: '222' })
+  });
+}
+
 async function sendTestFollow() {
   await fetch('/test-follow', { method: 'POST' });
 }
@@ -1901,6 +1929,8 @@ document.addEventListener('keydown', async (e) => {
     await sendTestFollow();
   } else if (e.key === '8') {
     await sendTestGift('doubleHeart');
+  } else if (e.key === '9') {
+    await sendTestChat();
   }
 });
 
@@ -1938,6 +1968,10 @@ socket.on('tiktok:like', (data) => {
 
 socket.on('tiktok:likeReward', (data) => {
   applyLikeReward(data);
+});
+
+socket.on('tiktok:chat', (data) => {
+  applyCommentReward(data);
 });
 
 socket.on('tiktok:follow', (data) => {

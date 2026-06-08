@@ -6,8 +6,10 @@ import { WebcastPushConnection } from 'tiktok-live-connector';
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: '*' } });
-const LIKE_APPLE_THRESHOLD = 1000;
+const LIKE_APPLE_THRESHOLD = 500;
 const LIKE_APPLE_REWARD = 10;
+const COMMENT_APPLE_REWARD = 2;
+const COMMENT_REWARD_TEXT = '222';
 
 app.use(express.static('public'));
 app.use(express.json());
@@ -91,6 +93,10 @@ function findAvailableGift({ giftName, giftType }) {
   });
 }
 
+function isRewardComment(comment) {
+  return String(comment || '').trim() === COMMENT_REWARD_TEXT;
+}
+
 function attachTikTokListeners(connection) {
   connection.on('gift', (data) => {
     // Only process finalized streak gifts. Non-streak gifts may not send repeatEnd.
@@ -139,6 +145,18 @@ function attachTikTokListeners(connection) {
       likeCount: totalLikeCount,
       appleCount: newMilestones * LIKE_APPLE_REWARD,
       threshold: LIKE_APPLE_THRESHOLD,
+      timestamp: Date.now()
+    });
+  });
+
+  connection.on('chat', (data) => {
+    if (!isRewardComment(data.comment)) return;
+
+    io.emit('tiktok:chat', {
+      uniqueId: data.uniqueId,
+      nickname: data.nickname,
+      comment: data.comment,
+      appleCount: COMMENT_APPLE_REWARD,
       timestamp: Date.now()
     });
   });
@@ -284,6 +302,20 @@ app.post('/test-like', (req, res) => {
   }
 
   res.json({ ok: true, reward });
+});
+
+// Dev endpoint: simulate a TikTok comment without a real livestream
+app.post('/test-chat', (req, res) => {
+  const comment = req.body?.comment || COMMENT_REWARD_TEXT;
+  const chat = {
+    uniqueId: 'test_viewer',
+    nickname: 'Test Viewer',
+    comment,
+    appleCount: isRewardComment(comment) ? COMMENT_APPLE_REWARD : 0,
+    timestamp: Date.now()
+  };
+  if (chat.appleCount > 0) io.emit('tiktok:chat', chat);
+  res.json({ ok: true, chat });
 });
 
 // Dev endpoint: simulate a TikTok follow without a real livestream

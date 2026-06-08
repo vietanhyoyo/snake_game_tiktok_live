@@ -406,21 +406,21 @@ button:disabled {
   display: grid;
   grid-template-columns: 1fr;
   justify-items: end;
-  gap: 6px;
+  gap: 2px;
   width: 100%;
 }
 
 .gift-guide-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   width: 130px;
   min-width: 0;
   min-height: 34px;
   background: #13131f;
   border: 1px solid #2a2a3a;
   border-radius: 8px;
-  padding: 4px 6px;
+  padding: 2px 6px;
 }
 
 .gift-guide-item img {
@@ -443,7 +443,7 @@ button:disabled {
 #side-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
   width: min(52vw, 240px);
 }
 
@@ -451,15 +451,22 @@ button:disabled {
 #score-panel {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 2px;
 }
 
 .stat-card {
   background: #13131f;
   border: 1px solid #2a2a3a;
   border-radius: 10px;
-  padding: 7px 5px;
+  padding: 2px 2px;
   text-align: center;
+}
+
+.stat-card--inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
 .stat-card.highlight {
@@ -474,12 +481,25 @@ button:disabled {
   line-height: 1;
 }
 
+#heart-count {
+  color: #ffffff;
+}
+
 .stat-label {
   font-size: 0.52rem;
   color: #777;
   margin-top: 3px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.stat-label--icon {
+  margin-top: 0;
+  color: #ff4f7b;
+  font-size: 0.8rem;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 #heart-reward-guide {

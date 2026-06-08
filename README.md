@@ -33,7 +33,7 @@ npm run dev
 2. Nhập TikTok username đang live, có thể nhập `@username` hoặc `username`.
 3. Nhấn nút plug để kết nối.
 4. Khi viewer tặng quà, game nhận gift và thêm táo vào sân.
-5. Khi livestream đạt mỗi mốc 1000 tap tim, game thêm 10 táo.
+5. Khi livestream đạt mỗi mốc 500 tap tim, game thêm 10 táo.
 6. Khi đã kết nối, form kết nối được ẩn; nhấn phím `r` để ngắt kết nối.
 7. Nhấn phím `t` để tắt nhạc nền, nhấn lại `t` để mở nhạc.
 
@@ -71,7 +71,7 @@ curl -X POST http://localhost:3000/test-gift \
 
 curl -X POST http://localhost:3000/test-like \
   -H "Content-Type: application/json" \
-  -d '{"likeCount": 1000}'
+  -d '{"likeCount": 500}'
 
 curl -X POST http://localhost:3000/test-follow \
   -H "Content-Type: application/json"
@@ -124,7 +124,7 @@ snake_game_tiktok_live/
 | Tính năng | Mô tả |
 |---|---|
 | TikTok gift -> táo | Gift hoàn tất streak sẽ tạo số táo theo `repeatCount`. |
-| TikTok tap tim -> táo | Mỗi 1000 tim tạo 10 táo. |
+| TikTok tap tim -> táo | Mỗi 500 tim tạo 10 táo. |
 | TikTok follow -> đổi màu | Mỗi follow đổi màu rắn. |
 | Gift Trái tim đội -> đổi màu | Quà Trái tim đội đổi màu rắn. |
 | Apple queue | Gift nhiều táo được đưa vào queue và spawn dần theo tick. |
@@ -176,7 +176,7 @@ length >= SERPENTINE_WIN_LENGTH
 | `POST` | `/disconnect` | Ngắt kết nối TikTok Live hiện tại. |
 | `GET` | `/status` | Trả về trạng thái kết nối hiện tại. |
 | `POST` | `/test-gift` | Giả lập gift. Body: `{"count": N, "giftName": "...", "giftType": "...", "appleCount": N, "bombCount": N, "giftPictureUrl": "..."}` |
-| `POST` | `/test-like` | Giả lập tap tim. Body: `{"likeCount": N}`. Mỗi 1000 tim cộng 10 táo. |
+| `POST` | `/test-like` | Giả lập tap tim. Body: `{"likeCount": N}`. Mỗi 500 tim cộng 10 táo. |
 | `POST` | `/test-follow` | Giả lập follow, dùng để đổi màu rắn. |
 
 ## Socket.io Events
