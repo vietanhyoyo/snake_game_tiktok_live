@@ -22,9 +22,9 @@ Trong browser:
 
 - `1`: giả lập Rose (+1 táo).
 - `2`: giả lập Finger Heart (+5 táo).
-- `3`: giả lập Lucky Pig (đổi màu rắn).
+- `3`: giả lập Lucky Pig (thêm hoa 5 màu; rắn ăn hoa thì đổi màu).
 - `4`: giả lập TikTok gift (+1 bom).
-- `q`: cycle màu rắn thủ công.
+- `q`: thêm hoa đổi màu thủ công.
 
 ## Kiến Trúc
 
@@ -109,7 +109,7 @@ const SERPENTINE_BODY_PRESSURE_WEIGHT = 6;
 const TEST_GIFTS = {
   rose:   { appleCount: 1,  action: undefined },  // +1 táo
   heart:  { appleCount: 5,  action: undefined },  // +5 táo
-  pig:    { appleCount: 0,  action: 'color'   },  // đổi màu rắn
+  pig:    { appleCount: 0,  action: 'color'   },  // tạo hoa đổi màu
   tiktok: { appleCount: 0,  action: 'bomb', bombCount: 1 }  // +1 bom
 };
 ```
@@ -120,8 +120,9 @@ const TEST_GIFTS = {
 
 8 theme màu trong `COLOR_THEMES`. Mỗi theme có `primary`, `strong`, `soft`, `rgb`, `tailRgb`. AI áp dụng theme lên CSS variable và render rắn gradient từ đầu (`rgb`) đến đuôi (`tailRgb`).
 
-- `cycleColorTheme()`: tăng `colorThemeIndex`, gọi `applyColorTheme()`.
-- Trigger: gift Lucky Pig hoặc phím `q`.
+- `spawnColorFlower()`: thêm 1 bông hoa 5 cánh 5 màu trên map.
+- `cycleColorTheme()`: tăng `colorThemeIndex`, gọi `applyColorTheme()` khi rắn ăn hoa.
+- Trigger thêm hoa: gift Lucky Pig theo `repeatCount` hoặc phím `q`.
 
 ## Game State Chính
 
@@ -217,7 +218,7 @@ Kết nối dùng `enableExtendedGiftInfo: true` để nhận ảnh gift đầy 
 Client nhận `tiktok:gift` và gọi `applyGiftEffect(data)`:
 
 ```js
-if (effect.action === 'color') cycleColorTheme();
+if (effect.action === 'color') spawnColorFlower();
 else if (effect.action === 'bomb') spawnBomb() × bombCount;
 else if (appleCount > 0) appleQueue += appleCount;
 

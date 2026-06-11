@@ -5,6 +5,7 @@ const CELL_SIZE = CANVAS_SIZE / GRID_SIZE;
 const BASE_TICK_MS = 60;
 const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% diện tích lưới
 const MAX_BOMBS = 50;
+const MAX_COLOR_FLOWERS = MAX_APPLES;
 const MIN_SNAKE_LENGTH = 3;
 const EXPLOSION_MS = 520;
 const FLOATING_TEXT_MS = 620;
@@ -80,6 +81,7 @@ let snake = [];
 let snakeDirection = { x: 1, y: 0 };
 let apples = [];
 let bombs = [];
+let colorFlowers = [];
 let explosions = [];
 let floatingTexts = [];
 let appleQueue = 0;
@@ -237,11 +239,11 @@ function applyColorTheme() {
   root.style.setProperty('--primary-rgb', currentTheme.rgb.join(', '));
 }
 
-function cycleColorTheme() {
+function cycleColorTheme(shouldRender = true) {
   colorThemeIndex = (colorThemeIndex + 1) % COLOR_THEMES.length;
   currentTheme = COLOR_THEMES[colorThemeIndex];
   applyColorTheme();
-  render();
+  if (shouldRender) render();
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -255,6 +257,7 @@ function initGame() {
   snakeDirection = { x: 0, y: -1 };
   apples = [];
   bombs = [];
+  colorFlowers = [];
   explosions = [];
   floatingTexts = [];
   appleQueue = 0;
@@ -306,6 +309,8 @@ function tick() {
   const ateApple = appleIndex !== -1;
   const bombIndex = bombs.findIndex(b => b.x === newHead.x && b.y === newHead.y);
   const ateBomb = bombIndex !== -1;
+  const flowerIndex = colorFlowers.findIndex(flower => flower.x === newHead.x && flower.y === newHead.y);
+  const ateColorFlower = flowerIndex !== -1;
 
   snake.unshift(newHead);
   if (ateApple) {
@@ -327,6 +332,12 @@ function tick() {
     bombs.splice(bombIndex, 1);
     snake.pop();
     if (snake.length > MIN_SNAKE_LENGTH) snake.pop();
+  } else if (ateColorFlower) {
+    colorFlowers.splice(flowerIndex, 1);
+    cycleColorTheme(false);
+    createFloatingText(newHead, 'COLOR', currentTheme.primary);
+    playSoundEffect('apple');
+    snake.pop();
   } else {
     snake.pop();
   }
@@ -395,6 +406,7 @@ function restartGame() {
   snakeDirection = { x: 0, y: -1 };
   explosions = [];
   floatingTexts = [];
+  colorFlowers = [];
   useSerpentineWinMode = false;
   serpentineLooseGapCooldown = 0;
   if (apples.length === 0) spawnApple();
@@ -644,14 +656,24 @@ function isSerpentineShortcutSafe(path, snakeBody, targetApple) {
   return isCycleShortcutSafe(path, snakeBody, targetApple, getSerpentineIndex);
 }
 
+function getEdibleTargets() {
+  return [
+    ...apples.map(apple => ({ ...apple, type: 'apple', grows: true })),
+    ...colorFlowers.map(flower => ({ ...flower, type: 'colorFlower', grows: false }))
+  ];
+}
+
 function getAppleCycleDistance(fromCell, getIndex = getHamiltonianIndex) {
+  const targets = getEdibleTargets();
+  if (targets.length === 0) return 0;
   const fromIndex = getIndex(fromCell);
-  return Math.min(...apples.map(apple => cycleDistance(fromIndex, getIndex(apple))));
+  return Math.min(...targets.map(target => cycleDistance(fromIndex, getIndex(target))));
 }
 
 function getNearestAppleDistance(fromCell) {
-  if (apples.length === 0) return 0;
-  return Math.min(...apples.map(apple => manhattan(fromCell, apple)));
+  const targets = getEdibleTargets();
+  if (targets.length === 0) return 0;
+  return Math.min(...targets.map(target => manhattan(fromCell, target)));
 }
 
 function countAdjacentBodyCells(cell, snakeBody = snake) {
@@ -704,11 +726,12 @@ function getCycleMoveCandidates(getIndex = getHamiltonianIndex) {
     const advance = cycleDistance(headIndex, getIndex(next));
     if (advance === 0) continue;
 
-    const eats = apples.some(apple => sameCell(apple, next));
-    const reserve = eats ? snake.length + 3 : snake.length + 1;
+    const target = getEdibleTargets().find(item => sameCell(item, next));
+    const eats = Boolean(target);
+    const reserve = target?.grows ? snake.length + 3 : snake.length + 1;
     if (advance >= headToTail - reserve) continue;
 
-    const appleDistance = apples.length > 0 ? getAppleCycleDistance(next, getIndex) : advance;
+    const appleDistance = getEdibleTargets().length > 0 ? getAppleCycleDistance(next, getIndex) : advance;
     const visualAppleDistance = getNearestAppleDistance(next);
     const turnPenalty = dir.x === snakeDirection.x && dir.y === snakeDirection.y ? 0 : 0.35;
     const score = appleDistance * 4 + advance + (eats ? -1000 : 0);
@@ -738,12 +761,13 @@ function getSerpentineShortcutDirection() {
 }
 
 function getShortModeAppleDirection(candidates = null) {
-  if (apples.length === 0) return null;
+  const targets = getEdibleTargets();
+  if (targets.length === 0) return null;
 
   const head = snake[0];
-  const sortedApples = [...apples].sort((a, b) => manhattan(a, head) - manhattan(b, head));
-  for (const apple of sortedApples) {
-    const path = astar(head, apple, snake);
+  const sortedTargets = targets.sort((a, b) => manhattan(a, head) - manhattan(b, head));
+  for (const target of sortedTargets) {
+    const path = astar(head, target, snake);
     if (!path || path.length < 2) continue;
 
     const dir = directionTo(head, path[1]);
@@ -758,13 +782,14 @@ function getShortModeAppleDirection(candidates = null) {
 
 function isShortPathSafe(path, snakeBody, targetApple) {
   const targetKey = cellKey(targetApple);
+  const targetGrows = targetApple?.grows !== false;
   let simSnake = snakeBody.map(seg => ({ ...seg }));
 
   for (let i = 1; i < path.length; i++) {
     const step = path[i];
     const eats = cellKey(step) === targetKey;
     simSnake.unshift(step);
-    if (!eats) simSnake.pop();
+    if (!eats || !targetGrows) simSnake.pop();
   }
 
   const obstacles = new Set(simSnake.slice(0, -1).map(cellKey));
@@ -808,15 +833,16 @@ function getRandomizedShortSnakeDirection() {
 }
 
 function getAStarDirectionForCycle(isShortcutSafe) {
-  if (apples.length === 0) return null;
+  const targets = getEdibleTargets();
+  if (targets.length === 0) return null;
 
   const head = snake[0];
-  const sorted = [...apples].sort((a, b) => manhattan(a, head) - manhattan(b, head));
+  const sorted = targets.sort((a, b) => manhattan(a, head) - manhattan(b, head));
   let bestPath = null;
-  for (const apple of sorted) {
-    const path = astar(head, apple, snake);
+  for (const target of sorted) {
+    const path = astar(head, target, snake);
     if (!path || path.length < 2) continue;
-    if (isShortcutSafe(path, snake, apple)) {
+    if (isShortcutSafe(path, snake, target)) {
       if (!bestPath || path.length < bestPath.length) bestPath = path;
     }
   }
@@ -830,7 +856,7 @@ function getSafeAStarDirection() {
 
 function getSafeAppleChaseDirection() {
   if (
-    apples.length === 0 ||
+    getEdibleTargets().length === 0 ||
     snake.length < APPLE_CHASE_LENGTH ||
     snake.length >= SERPENTINE_STRICT_LENGTH
   ) return null;
@@ -866,9 +892,10 @@ function simulateMove(dir) {
   };
   if (isBodyCollision(next)) return null;
 
-  const eats = apples.some(apple => sameCell(apple, next));
+  const target = getEdibleTargets().find(item => sameCell(item, next));
+  const eats = Boolean(target);
   const simSnake = [next, ...snake.map(seg => ({ ...seg }))];
-  if (!eats) simSnake.pop();
+  if (!target?.grows) simSnake.pop();
   return { next, simSnake, eats };
 }
 
@@ -999,12 +1026,17 @@ function spawnBomb() {
   return spawnItem(bombs, MAX_BOMBS);
 }
 
+function spawnColorFlower() {
+  return spawnItem(colorFlowers, MAX_COLOR_FLOWERS);
+}
+
 function spawnItem(collection, maxItems = Infinity) {
   if (collection.length >= maxItems) return false;
   const occupied = new Set([
     ...snake.map(s => `${s.x},${s.y}`),
     ...apples.map(a => `${a.x},${a.y}`),
-    ...bombs.map(b => `${b.x},${b.y}`)
+    ...bombs.map(b => `${b.x},${b.y}`),
+    ...colorFlowers.map(flower => `${flower.x},${flower.y}`)
   ]);
   const empty = [];
   for (let x = 0; x < GRID_SIZE; x++) {
@@ -1149,16 +1181,18 @@ function floodFill(startCell, obstacles) {
 // then flood-fill from final head position to verify enough space remains.
 function isPathSafe(path, snakeBody, targetApple = null) {
   const targetKey = targetApple ? cellKey(targetApple) : null;
+  const targetGrows = targetApple?.grows !== false;
   let simSnake = snakeBody.map(s => ({ ...s }));
   let growthPending = 0;
   for (let i = 1; i < path.length; i++) {
     const step = path[i];
     const willEat = targetKey && cellKey(step) === targetKey;
-    const blockedBody = willEat || growthPending > 0 ? simSnake : simSnake.slice(0, -1);
+    const willGrow = willEat && targetGrows;
+    const blockedBody = willGrow || growthPending > 0 ? simSnake : simSnake.slice(0, -1);
     if (blockedBody.some(seg => sameCell(seg, step))) return false;
 
     simSnake.unshift(path[i]);
-    if (willEat) {
+    if (willGrow) {
       growthPending++;
     } else if (growthPending > 0) {
       growthPending--;
@@ -1384,6 +1418,44 @@ function render() {
     ctx.fillStyle = '#ffcc33';
     ctx.beginPath();
     ctx.arc(r * 1.18, -r, 2.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  });
+
+  // Color flowers
+  const FLOWER_ANIM_MS = 360;
+  const FLOWER_COLORS = ['#ff4466', '#facc15', '#38bdf8', '#a855f7', '#22c55e'];
+  colorFlowers.forEach(flower => {
+    const px = flower.x * CELL_SIZE + CELL_SIZE / 2;
+    const py = flower.y * CELL_SIZE + CELL_SIZE / 2;
+    const age = Date.now() - flower.spawnTime;
+    const scale = age < FLOWER_ANIM_MS ? easeOutBack(age / FLOWER_ANIM_MS) : 1;
+    const spin = Date.now() / 520;
+    const petalRadius = CELL_SIZE * 0.19;
+    const petalDistance = CELL_SIZE * 0.24;
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(spin);
+    ctx.scale(scale, scale);
+
+    ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+    ctx.shadowBlur = 10;
+    for (let i = 0; i < 5; i++) {
+      const angle = -Math.PI / 2 + (Math.PI * 2 * i) / 5;
+      const petalX = Math.cos(angle) * petalDistance;
+      const petalY = Math.sin(angle) * petalDistance;
+      ctx.fillStyle = FLOWER_COLORS[i];
+      ctx.beginPath();
+      ctx.ellipse(petalX, petalY, petalRadius * 0.78, petalRadius * 1.18, angle, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff7a8';
+    ctx.beginPath();
+    ctx.arc(0, 0, CELL_SIZE * 0.14, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -1719,10 +1791,11 @@ function showGiftNotification(data) {
   const effect = getGiftEffect(data);
   const appleCount = Number(data.appleCount ?? effect.appleCount) || 0;
   const bombCount = Number(data.bombCount ?? effect.bombCount) || 0;
+  const colorFlowerCount = Number(data.colorFlowerCount) || 1;
   const giftImage = getGiftImage(data, effect);
   const displayName = data.displayName || effect.displayName || data.giftName || 'Gift';
   const resultLabel = effect.action === 'color'
-    ? '<span class="gift-action">Snake color changed</span>'
+    ? `<span class="gift-action">+${colorFlowerCount} color flower</span>`
     : effect.action === 'bomb'
       ? `<span class="gift-action gift-action--danger">+${bombCount || 1} 💣</span>`
     : `<span class="apple-count">+${appleCount} 🍎</span>`;
@@ -1760,9 +1833,11 @@ function applyGiftEffect(data) {
   const bombCount = isMappedGift
     ? (Number(effect.bombCount) || 0) * repeatCount
     : Number(data.bombCount ?? effect.bombCount) || 0;
+  const colorFlowerCount = effect.action === 'color' ? repeatCount : 0;
 
   if (effect.action === 'color') {
-    cycleColorTheme();
+    for (let i = 0; i < colorFlowerCount; i++) spawnColorFlower();
+    render();
   } else if (effect.action === 'bomb') {
     for (let i = 0; i < Math.max(1, bombCount); i++) spawnBomb();
   } else if (appleCount > 0) {
@@ -1770,7 +1845,7 @@ function applyGiftEffect(data) {
   }
 
   totalGifts += repeatCount;
-  showGiftNotification({ ...data, appleCount, bombCount, displayName: effect.displayName });
+  showGiftNotification({ ...data, appleCount, bombCount, colorFlowerCount, displayName: effect.displayName });
   updateUI();
 }
 
@@ -1809,7 +1884,8 @@ function updateHeartCount(data) {
 }
 
 function applyFollowEffect(data) {
-  cycleColorTheme();
+  spawnColorFlower();
+  render();
   showGiftNotification({
     ...data,
     giftName: 'Follow',
@@ -1908,7 +1984,8 @@ document.addEventListener('keydown', async (e) => {
   if (!isTyping) startThemeMusic();
 
   if (key === 'q' && !isTyping) {
-    cycleColorTheme();
+    spawnColorFlower();
+    render();
   } else if (key === 'e' && !isTyping) {
     playNextThemeTrack();
   } else if (key === 'r' && !isTyping) {

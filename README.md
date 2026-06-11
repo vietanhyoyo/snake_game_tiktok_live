@@ -43,12 +43,12 @@ Trong browser:
 
 - Nhấn phím `1` để giả lập Hoa hồng, thêm 5 táo.
 - Nhấn phím `2` để giả lập Bắn tim/Finger Heart, thêm 10 táo.
-- Nhấn phím `3` để giả lập Chú heo may mắn, đổi màu rắn.
+- Nhấn phím `3` để giả lập Chú heo may mắn, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
 - Nhấn phím `4` để giả lập TikTok, thêm 3 bom.
 - Nhấn phím `5` để giả lập 200 tim.
 - Nhấn phím `6` để giả lập 20 tim.
-- Nhấn phím `7` để giả lập follow, đổi màu rắn.
-- Nhấn phím `8` để giả lập quà Trái tim đội, đổi màu rắn.
+- Nhấn phím `7` để giả lập follow, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
+- Nhấn phím `8` để giả lập quà Trái tim đội, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
 
 Hoặc dùng REST API:
 
@@ -125,8 +125,8 @@ snake_game_tiktok_live/
 |---|---|
 | TikTok gift -> táo | Gift hoàn tất streak sẽ tạo số táo theo `repeatCount`. |
 | TikTok tap tim -> táo | Mỗi 500 tim tạo 10 táo. |
-| TikTok follow -> đổi màu | Mỗi follow đổi màu rắn. |
-| Gift Trái tim đội -> đổi màu | Quà Trái tim đội đổi màu rắn. |
+| TikTok follow -> hoa đổi màu | Mỗi follow thêm hoa 5 màu; rắn ăn hoa thì đổi màu. |
+| Gift đổi màu -> hoa đổi màu | Gift đổi màu thêm hoa theo `repeatCount`; rắn ăn hoa thì đổi màu. |
 | Apple queue | Gift nhiều táo được đưa vào queue và spawn dần theo tick. |
 | TikTok gift -> bom | Gift TikTok tạo 3 bom; rắn ăn bom bị giảm 1 độ dài, tối thiểu 3. |
 | AI nhiều phase | Short mode, Hilbert mode, Serpentine playful, Serpentine strict. |
@@ -177,7 +177,7 @@ length >= SERPENTINE_WIN_LENGTH
 | `GET` | `/status` | Trả về trạng thái kết nối hiện tại. |
 | `POST` | `/test-gift` | Giả lập gift. Body: `{"count": N, "giftName": "...", "giftType": "...", "appleCount": N, "bombCount": N, "giftPictureUrl": "..."}` |
 | `POST` | `/test-like` | Giả lập tap tim. Body: `{"likeCount": N}`. Mỗi 500 tim cộng 10 táo. |
-| `POST` | `/test-follow` | Giả lập follow, dùng để đổi màu rắn. |
+| `POST` | `/test-follow` | Giả lập follow, tạo hoa đổi màu trên map. |
 
 ## Socket.io Events
 
@@ -192,7 +192,7 @@ Server emit các event sau sang browser:
 | `tiktok:gift` | Gift hoàn tất streak, dùng để cộng táo. |
 | `tiktok:like` | Số tap tim realtime, dùng để hiển thị tổng tim. |
 | `tiktok:likeReward` | Mốc tap tim, dùng để cộng táo. |
-| `tiktok:follow` | Follow mới, dùng để đổi màu rắn. |
+| `tiktok:follow` | Follow mới, dùng để tạo hoa đổi màu trên map. |
 
 ## Bảo Mật Và Giới Hạn
 
