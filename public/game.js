@@ -43,7 +43,7 @@ const TEST_GIFTS = {
     giftType: 'heart',
     giftName: 'Bắn tim',
     displayName: 'Finger Heart',
-    appleCount: 10
+    appleCount: 15
   },
   doubleHeart: {
     giftType: 'double_heart',
@@ -71,7 +71,7 @@ const TEST_GIFTS = {
     giftName: 'TikTok',
     displayName: 'TikTok',
     appleCount: 0,
-    bombCount: 3,
+    bombCount: 5,
     action: 'bomb'
   }
 };
@@ -129,12 +129,15 @@ const SOUND_EFFECTS = {
   result: new Audio('/assets/music/effects/wingame.mp3')
 };
 const THEME_TRACKS = [
-  "CORTIS (코르티스) 'REDRED' Instrumental.mp3",
-  "ILLIT - It's Me  Official Instrumental.mp3",
-  'aespa - LEMONADE  Instrumental.mp3',
   "BABYMONSTER - '춤 (CHOOM)'  Instrumental.mp3",
+  "CORTIS (코르티스) 'REDRED' Instrumental.mp3",
+  'CRAZY (Instrumental).mp3',
+  'G-DRAGON - A BOY (소년이여) (Official Instrumental).mp3',
   'Hearts2Hearts  RUDE!  Instrumental.mp3',
-  'LE SSERAFIM - BOOMPALA (Instrumental).mp3',
+  "ILLIT - It's Me  Official Instrumental.mp3",
+  'NewJeans - New Jeans  Instrumental.mp3',
+  'NewJeans - Super Shy  Instrumental.mp3',
+  'SPAGHETTI (feat. j-hope of BTS) (Instrumental).mp3',
   'NOT CUTE ANYMORE (Instrumental).mp3'
 ].map(fileName => encodeURI(`/assets/music/otherthemes/${fileName}`));
 let themeMusic = null;

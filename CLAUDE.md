@@ -21,9 +21,9 @@ curl -X POST http://localhost:3000/test-gift \
 Trong browser:
 
 - `1`: giả lập Rose (+1 táo).
-- `2`: giả lập Finger Heart (+5 táo).
+- `2`: giả lập Finger Heart (+15 táo).
 - `3`: giả lập Lucky Pig (thêm hoa 5 màu; rắn ăn hoa thì đổi màu).
-- `4`: giả lập TikTok gift (+1 bom).
+- `4`: giả lập TikTok gift (+5 bom).
 - `q`: thêm hoa đổi màu thủ công.
 
 ## Kiến Trúc
@@ -108,9 +108,9 @@ const SERPENTINE_BODY_PRESSURE_WEIGHT = 6;
 ```js
 const TEST_GIFTS = {
   rose:   { appleCount: 1,  action: undefined },  // +1 táo
-  heart:  { appleCount: 5,  action: undefined },  // +5 táo
+  heart:  { appleCount: 15, action: undefined },  // +15 táo
   pig:    { appleCount: 0,  action: 'color'   },  // tạo hoa đổi màu
-  tiktok: { appleCount: 0,  action: 'bomb', bombCount: 1 }  // +1 bom
+  tiktok: { appleCount: 0,  action: 'bomb', bombCount: 5 }  // +5 bom
 };
 ```
 

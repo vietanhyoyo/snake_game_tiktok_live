@@ -42,9 +42,9 @@ npm run dev
 Trong browser:
 
 - Nhấn phím `1` để giả lập Hoa hồng, thêm 5 táo.
-- Nhấn phím `2` để giả lập Bắn tim/Finger Heart, thêm 10 táo.
+- Nhấn phím `2` để giả lập Bắn tim/Finger Heart, thêm 15 táo.
 - Nhấn phím `3` để giả lập Chú heo may mắn, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
-- Nhấn phím `4` để giả lập TikTok, thêm 3 bom.
+- Nhấn phím `4` để giả lập TikTok, thêm 5 bom.
 - Nhấn phím `5` để giả lập 200 tim.
 - Nhấn phím `6` để giả lập 20 tim.
 - Nhấn phím `7` để giả lập follow, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
@@ -59,7 +59,7 @@ curl -X POST http://localhost:3000/test-gift \
 
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
-  -d '{"count": 1, "giftName": "Bắn tim", "giftType": "heart", "appleCount": 10}'
+  -d '{"count": 1, "giftName": "Bắn tim", "giftType": "heart", "appleCount": 15}'
 
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
@@ -67,7 +67,7 @@ curl -X POST http://localhost:3000/test-gift \
 
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
-  -d '{"count": 1, "giftName": "TikTok", "giftType": "tiktok", "appleCount": 0, "bombCount": 3}'
+  -d '{"count": 1, "giftName": "TikTok", "giftType": "tiktok", "appleCount": 0, "bombCount": 5}'
 
 curl -X POST http://localhost:3000/test-like \
   -H "Content-Type: application/json" \
@@ -128,7 +128,7 @@ snake_game_tiktok_live/
 | TikTok follow -> hoa đổi màu | Mỗi follow thêm hoa 5 màu; rắn ăn hoa thì đổi màu. |
 | Gift đổi màu -> hoa đổi màu | Gift đổi màu thêm hoa theo `repeatCount`; rắn ăn hoa thì đổi màu. |
 | Apple queue | Gift nhiều táo được đưa vào queue và spawn dần theo tick. |
-| TikTok gift -> bom | Gift TikTok tạo 3 bom; rắn ăn bom bị giảm 1 độ dài, tối thiểu 3. |
+| TikTok gift -> bom | Gift TikTok tạo 5 bom; rắn ăn bom bị giảm 1 độ dài, tối thiểu 3. |
 | AI nhiều phase | Short mode, Hilbert mode, Serpentine playful, Serpentine strict. |
 | Xuyên tường | Rắn wrap qua biên lưới thay vì chết khi chạm tường. |
 | Safety checks | A*, flood-fill, path simulation, tail reachability và cycle shortcut safety. |
