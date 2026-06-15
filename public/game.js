@@ -129,17 +129,10 @@ const SOUND_EFFECTS = {
   result: new Audio('/assets/music/effects/wingame.mp3')
 };
 const THEME_TRACKS = [
-  "BABYMONSTER - '춤 (CHOOM)'  Instrumental.mp3",
-  "CORTIS (코르티스) 'REDRED' Instrumental.mp3",
-  'CRAZY (Instrumental).mp3',
-  'G-DRAGON - A BOY (소년이여) (Official Instrumental).mp3',
-  'Hearts2Hearts  RUDE!  Instrumental.mp3',
-  "ILLIT - It's Me  Official Instrumental.mp3",
-  'NewJeans - New Jeans  Instrumental.mp3',
-  'NewJeans - Super Shy  Instrumental.mp3',
-  'SPAGHETTI (feat. j-hope of BTS) (Instrumental).mp3',
-  'NOT CUTE ANYMORE (Instrumental).mp3'
-].map(fileName => encodeURI(`/assets/music/otherthemes/${fileName}`));
+  'bit-shift-kevin-macleod-main-version-24901-03-12.mp3',
+  'pixel-drift-pecan-pie-main-version-41106-02-09.mp3',
+  'ready-set-drift-michael-grubb-main-version-24555-02-59.mp3'
+].map(fileName => encodeURI(`/assets/music/themes/${fileName}`));
 let themeMusic = null;
 let themeTrackIndex = -1;
 let themeMusicStarted = false;
@@ -149,7 +142,7 @@ Object.values(SOUND_EFFECTS).forEach(sound => {
   sound.preload = 'auto';
   sound.volume = 0.75;
 });
-SOUND_EFFECTS.apple.volume = 0.15;
+SOUND_EFFECTS.apple.volume = 0.30;
 
 function playSoundEffect(type) {
   const source = SOUND_EFFECTS[type];
