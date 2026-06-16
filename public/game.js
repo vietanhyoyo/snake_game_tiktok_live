@@ -4,6 +4,7 @@ const CANVAS_SIZE = 392;
 const CELL_SIZE = CANVAS_SIZE / GRID_SIZE;
 const BASE_TICK_MS = 60;
 const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% diện tích lưới
+const DENSE_APPLE_WIN_THRESHOLD = 30;
 const MAX_BOMBS = 50;
 const MAX_COLOR_FLOWERS = MAX_APPLES;
 const MAX_FIREFLIES = 12;
@@ -14,6 +15,8 @@ const FLOATING_TEXT_MS = 620;
 const GIFT_NOTIFICATION_MS = 1800;
 const LIKE_REWARD_APPLES_PER_FIREFLY = 10;
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
+const HAMILTONIAN_MOVE_UNTIL_LENGTH = 80;
+const HAMILTONIAN_HARD_LOCK_LENGTH = 150;
 const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
 const APPLE_CHASE_LENGTH = 70;
@@ -99,6 +102,8 @@ let gameLoopInterval = null;
 let resultCountdownTimer = null;
 let fireworksAnimationId = null;
 let fireworks = [];
+let useHamiltonianMode = false;
+let lockHamiltonianMode = false;
 let useSerpentineWinMode = false;
 let colorThemeIndex = 0;
 let currentTheme = COLOR_THEMES[colorThemeIndex];
@@ -266,6 +271,8 @@ function initGame() {
   floatingTexts = [];
   appleQueue = 0;
   score = 0;
+  useHamiltonianMode = false;
+  lockHamiltonianMode = false;
   useSerpentineWinMode = false;
   serpentineLooseGapCooldown = 0;
   spawnApple();
@@ -276,6 +283,7 @@ function initGame() {
 // ─── Core Game Loop ───────────────────────────────────────────────────────────
 function tick() {
   updateFireflies();
+  ensureAppleAvailable();
 
   // Drain apple queue up to the cap
   while (appleQueue > 0 && apples.length < MAX_APPLES) {
@@ -313,6 +321,7 @@ function tick() {
   // Check apple
   const appleIndex = apples.findIndex(a => a.x === newHead.x && a.y === newHead.y);
   const ateApple = appleIndex !== -1;
+  const appleCanGrowSnake = ateApple && (!isBoardFull() || snake.length + 1 >= GRID_SIZE * GRID_SIZE);
   const bombIndex = bombs.findIndex(b => b.x === newHead.x && b.y === newHead.y);
   const ateBomb = bombIndex !== -1;
   const flowerIndex = colorFlowers.findIndex(flower => flower.x === newHead.x && flower.y === newHead.y);
@@ -326,13 +335,14 @@ function tick() {
     playSoundEffect('apple');
     apples.splice(appleIndex, 1);
     score += 10;
-    if (snake.length >= GRID_SIZE * GRID_SIZE) {
+    if (!appleCanGrowSnake) {
+      snake.pop();
+    } else if (snake.length >= GRID_SIZE * GRID_SIZE) {
       render();
       updateUI();
       handleWin();
       return;
     }
-    if (apples.length === 0 && appleQueue === 0) spawnApple();
   } else if (ateBomb) {
     createFloatingText(newHead, '-', '#ff3b4f');
     playSoundEffect('bomb');
@@ -357,6 +367,7 @@ function tick() {
     snake.pop();
   }
 
+  ensureAppleAvailable();
   render();
   updateUI();
 }
@@ -423,6 +434,8 @@ function restartGame() {
   fireflyFlashes = [];
   floatingTexts = [];
   colorFlowers = [];
+  useHamiltonianMode = false;
+  lockHamiltonianMode = false;
   useSerpentineWinMode = false;
   serpentineLooseGapCooldown = 0;
   if (apples.length === 0) spawnApple();
@@ -680,6 +693,10 @@ function getEdibleTargets() {
   ];
 }
 
+function isDenseAppleWinMode() {
+  return apples.length > DENSE_APPLE_WIN_THRESHOLD;
+}
+
 function getAppleCycleDistance(fromCell, getIndex = getHamiltonianIndex) {
   const targets = getEdibleTargets();
   if (targets.length === 0) return 0;
@@ -901,6 +918,30 @@ function getSafeAppleChaseDirection() {
   return best?.dir ?? null;
 }
 
+function getDenseAppleWinDirection() {
+  if (!isDenseAppleWinMode()) return null;
+
+  return getHamiltonianWinDirection();
+}
+
+function getHamiltonianWinDirection() {
+  const shortcutDir = getHamiltonianShortcutDirection();
+  if (shortcutDir) return shortcutDir;
+
+  const astarDir = getAStarDirectionForCycle(isHamiltonianShortcutSafe);
+  if (astarDir) return astarDir;
+
+  const head = snake[0];
+  const cycleDir = getHamiltonianDirection();
+  const cycleHead = {
+    x: (head.x + cycleDir.x + GRID_SIZE) % GRID_SIZE,
+    y: (head.y + cycleDir.y + GRID_SIZE) % GRID_SIZE
+  };
+  if (!isBodyCollision(cycleHead)) return cycleDir;
+
+  return getSurvivalDirection(head, snake, snakeDirection);
+}
+
 function simulateMove(dir) {
   const head = snake[0];
   const next = {
@@ -1039,6 +1080,34 @@ function spawnApple() {
   return spawnItem(apples, MAX_APPLES);
 }
 
+function ensureAppleAvailable() {
+  if (ensureFinalAppleAvailable()) return;
+  if (apples.length > 0) return;
+  if (spawnApple() && appleQueue > 0) appleQueue--;
+}
+
+function ensureFinalAppleAvailable() {
+  if (snake.length < GRID_SIZE * GRID_SIZE - 1) return false;
+
+  const snakeCells = new Set(snake.map(cellKey));
+  const openCells = [];
+  for (let x = 0; x < GRID_SIZE; x++) {
+    for (let y = 0; y < GRID_SIZE; y++) {
+      if (!snakeCells.has(`${x},${y}`)) openCells.push({ x, y });
+    }
+  }
+  if (openCells.length === 0) return false;
+
+  const target = openCells[0];
+  if (apples.some(apple => sameCell(apple, target))) return true;
+
+  apples = [{ x: target.x, y: target.y, spawnTime: Date.now() }];
+  bombs = bombs.filter(bomb => !sameCell(bomb, target));
+  colorFlowers = colorFlowers.filter(flower => !sameCell(flower, target));
+  fireflies = fireflies.filter(firefly => !sameCell(getFireflyCell(firefly), target));
+  return true;
+}
+
 function spawnBomb() {
   return spawnItem(bombs, MAX_BOMBS);
 }
@@ -1047,16 +1116,24 @@ function spawnColorFlower() {
   return spawnItem(colorFlowers, MAX_COLOR_FLOWERS);
 }
 
-function spawnFirefly() {
-  if (fireflies.length >= MAX_FIREFLIES) return false;
-
-  const occupied = new Set([
+function getOccupiedCellKeys() {
+  return new Set([
     ...snake.map(cellKey),
     ...apples.map(cellKey),
     ...bombs.map(cellKey),
     ...colorFlowers.map(cellKey),
     ...fireflies.map(firefly => cellKey(getFireflyCell(firefly)))
   ]);
+}
+
+function isBoardFull() {
+  return getOccupiedCellKeys().size >= GRID_SIZE * GRID_SIZE;
+}
+
+function spawnFirefly() {
+  if (fireflies.length >= MAX_FIREFLIES) return false;
+
+  const occupied = getOccupiedCellKeys();
   const empty = [];
   for (let x = 0; x < GRID_SIZE; x++) {
     for (let y = 0; y < GRID_SIZE; y++) {
@@ -1080,13 +1157,7 @@ function spawnFirefly() {
 
 function spawnItem(collection, maxItems = Infinity) {
   if (collection.length >= maxItems) return false;
-  const occupied = new Set([
-    ...snake.map(s => `${s.x},${s.y}`),
-    ...apples.map(a => `${a.x},${a.y}`),
-    ...bombs.map(b => `${b.x},${b.y}`),
-    ...colorFlowers.map(flower => `${flower.x},${flower.y}`),
-    ...fireflies.map(firefly => cellKey(getFireflyCell(firefly)))
-  ]);
+  const occupied = getOccupiedCellKeys();
   const empty = [];
   for (let x = 0; x < GRID_SIZE; x++) {
     for (let y = 0; y < GRID_SIZE; y++) {
@@ -1325,10 +1396,28 @@ function getSurvivalDirection(head, snakeBody, currentDir) {
 
 function getAIDirection() {
   const head = snake[0];
+  const canEnterHamiltonian = snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH;
+  const canUseDenseHamiltonian = canEnterHamiltonian && isDenseAppleWinMode();
 
-  if (!useSerpentineWinMode && snake.length >= SERPENTINE_WIN_LENGTH) {
+  if (!useHamiltonianMode && canUseDenseHamiltonian) {
+    useHamiltonianMode = true;
+  }
+
+  if (useHamiltonianMode && snake.length >= HAMILTONIAN_HARD_LOCK_LENGTH) {
+    lockHamiltonianMode = true;
+  }
+
+  if (useHamiltonianMode && !lockHamiltonianMode && !isDenseAppleWinMode()) {
+    useHamiltonianMode = false;
+  }
+
+  if (!useSerpentineWinMode && !useHamiltonianMode && snake.length >= SERPENTINE_WIN_LENGTH) {
     useSerpentineWinMode = true;
   }
+
+  if (useSerpentineWinMode) return getSerpentineWinDirection();
+
+  if (useHamiltonianMode) return getHamiltonianWinDirection();
 
   if (snake.length >= SERPENTINE_PREP_LENGTH && snake.length < SERPENTINE_WIN_LENGTH) {
     if (serpentineLooseGapCooldown > 0) {
@@ -1352,8 +1441,6 @@ function getAIDirection() {
     return getSerpentineTransitionDirection(true);
   }
 
-  if (useSerpentineWinMode) return getSerpentineWinDirection();
-
   // ── Tier 1: Stochastic early game ────────────────────────────────────────
   // Free-roaming and more varied; switches out early to protect late-game.
   if (snake.length < RANDOM_MOVE_UNTIL_LENGTH) {
@@ -1366,22 +1453,13 @@ function getAIDirection() {
   const chaseDir = getSafeAppleChaseDirection();
   if (chaseDir) return chaseDir;
 
-  if (!isSnakeAlignedToHamiltonian()) {
+  if (!isSnakeAlignedToSerpentine()) {
     return getSerpentineTransitionDirection(false);
   }
 
-  // ── Tier 3: Hamiltonian shortcut toward apples ───────────────────────────
-  const shortcutDir = getHamiltonianShortcutDirection();
-  if (shortcutDir) return shortcutDir;
-
-  // ── Tier 4: A* to safe apple ─────────────────────────────────────────────
-  // Use full paths only when they still respect the Hamiltonian ordering.
-  const astarDir = getAStarDirectionForCycle(isHamiltonianShortcutSafe);
-  if (astarDir) return astarDir;
-
-  // ── Tier 5: Hamiltonian safety loop ───────────────────────────────────────
-  // This guarantees progress around the board and will eventually reach apples.
-  const cycleDir = getHamiltonianDirection();
+  // ── Tier 3: Serpentine safety loop ────────────────────────────────────────
+  // After early random mode, avoid Hamiltonian movement and preserve a path to win.
+  const cycleDir = getSerpentineDirection();
   const cycleHead = {
     x: (head.x + cycleDir.x + GRID_SIZE) % GRID_SIZE,
     y: (head.y + cycleDir.y + GRID_SIZE) % GRID_SIZE

@@ -24,9 +24,12 @@ Hiện tại:
 
 ```js
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
+const HAMILTONIAN_MOVE_UNTIL_LENGTH = 80;
+const HAMILTONIAN_HARD_LOCK_LENGTH = 150;
 const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
 const APPLE_CHASE_LENGTH = 70;
+const DENSE_APPLE_WIN_THRESHOLD = 30;
 const SERPENTINE_PREP_LENGTH = 150;
 ```
 
@@ -44,6 +47,26 @@ Tradeoff:
 - Tăng `SHORT_MODE_RANDOMNESS`: rắn ngẫu nhiên hơn, nhưng ăn táo chậm hơn.
 - Giảm `SHORT_MODE_RANDOMNESS`: rắn bám táo mạnh hơn.
 
+### Dense Apple Win Mode
+
+Điều kiện:
+
+```js
+apples.length > DENSE_APPLE_WIN_THRESHOLD
+```
+
+Khi trên màn hình có hơn `30` quả táo và rắn chưa vượt `HAMILTONIAN_MOVE_UNTIL_LENGTH`, AI bật `useHamiltonianMode` và chuyển sang luồng Hamiltonian an toàn. Sau khi mode này đã bật, rắn tiếp tục ở Hamiltonian kể cả khi vượt `HAMILTONIAN_MOVE_UNTIL_LENGTH`; mode chỉ tắt khi số táo giảm về `30` hoặc ít hơn.
+
+Luồng xử lý:
+
+1. Chỉ tính táo thật trong `apples`, không tính hoa đổi màu hoặc đom đóm.
+2. Gọi `getHamiltonianShortcutDirection()` để rắn chỉ shortcut khi vẫn giữ thứ tự an toàn giữa đầu và đuôi trên Hamiltonian cycle.
+3. Nếu không có shortcut, thử A* theo Hamiltonian bằng `getAStarDirectionForCycle(isHamiltonianShortcutSafe)`.
+4. Nếu vẫn không có hướng ăn an toàn, đi tiếp trên `getHamiltonianDirection()`.
+5. Nếu nước Hamiltonian kế tiếp bị chặn, fallback sang `getSurvivalDirection()`.
+
+Mode này chỉ được bật trong giai đoạn `snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH`. Nếu rắn đã vượt ngưỡng này khi `useHamiltonianMode` vẫn false, AI không được vào Hamiltonian nữa và chuyển sang luồng serpentine/survival.
+
 ### 2. Hilbert Mode
 
 Sau short mode và trước serpentine win mode, AI dùng Hilbert curve làm cycle an toàn.
@@ -59,24 +82,59 @@ Các hàm chính:
 
 Trong phase này AI ưu tiên:
 
-1. Từ độ dài `SERPENTINE_PREP_LENGTH`, AI bắt đầu chuẩn bị serpentine để vào win mode ở mốc `SERPENTINE_WIN_LENGTH`.
-2. Trong khoảng `SERPENTINE_PREP_LENGTH <= snake.length < SERPENTINE_WIN_LENGTH`, AI có thể mở khe nhẹ bằng `getSerpentineTransitionDirection(false, { preferOpenGap: true })`, sau đó quay lại strict transition để xếp thân.
-3. Từ độ dài `APPLE_CHASE_LENGTH` đến trước `SERPENTINE_PREP_LENGTH`, thử `getSafeAppleChaseDirection()` trước. Đường A* đầy đủ chỉ được dùng nếu qua được `isPathSafe()`; fallback một bước vẫn phải qua `isSimulatedMoveSafe()`.
-4. Shortcut an toàn tới táo bằng `getHamiltonianShortcutDirection()`.
-5. A* tới táo nếu đường đó vẫn hợp lệ theo Hilbert.
-6. Nếu không có shortcut, đi tiếp trên Hilbert cycle.
-7. Nếu bị kẹt, dùng survival fallback.
+1. Từ độ dài `APPLE_CHASE_LENGTH` đến trước `SERPENTINE_PREP_LENGTH`, thử `getSafeAppleChaseDirection()` trước. Đường A* đầy đủ chỉ được dùng nếu qua được `isPathSafe()`; fallback một bước vẫn phải qua `isSimulatedMoveSafe()`.
+2. Shortcut an toàn tới táo bằng `getHamiltonianShortcutDirection()`.
+3. A* tới táo nếu đường đó vẫn hợp lệ theo Hilbert.
+4. Nếu không có shortcut, đi tiếp trên Hilbert cycle.
+5. Nếu bị kẹt, dùng survival fallback.
+6. Hamiltonian chỉ được bật khi táo dày (`apples.length > DENSE_APPLE_WIN_THRESHOLD`) và `snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH`. Nếu đã bật, nó duy trì qua ngưỡng này cho đến khi táo giảm về `30` hoặc ít hơn.
 
 Tradeoff:
 
 - Giảm `APPLE_CHASE_LENGTH`: rắn bắt đầu bám táo mạnh hơn sớm hơn, nhưng rời cycle an toàn nhiều hơn.
-- Tăng `SERPENTINE_PREP_LENGTH`: rắn bám táo lâu hơn trước khi xếp win, nhưng tỉ lệ ổn định sau 150 có thể giảm.
+- Tăng `SERPENTINE_PREP_LENGTH`: rắn bám táo lâu hơn trước khi bắt đầu prep serpentine.
+
+### Dense Hamiltonian Window
+
+Điều kiện chạy Hamiltonian:
+
+```js
+useHamiltonianMode === true
+```
+
+Điều kiện bật:
+
+```js
+apples.length > DENSE_APPLE_WIN_THRESHOLD &&
+snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH
+```
+
+`HAMILTONIAN_MOVE_UNTIL_LENGTH` là cửa sổ cho phép bật Hamiltonian. Nếu `useHamiltonianMode` đã true, rắn tiếp tục ở Hamiltonian kể cả sau khi vượt ngưỡng này. Nếu số táo trên màn hình giảm về `30` hoặc ít hơn trước khi hard lock, `useHamiltonianMode` tắt và AI quay lại flow bình thường. Nếu rắn đã vượt `HAMILTONIAN_MOVE_UNTIL_LENGTH` khi `useHamiltonianMode` vẫn false, AI không được vào Hamiltonian nữa.
+
+Hard lock:
+
+```js
+useHamiltonianMode === true &&
+snake.length >= HAMILTONIAN_HARD_LOCK_LENGTH
+```
+
+Khi hard lock bật, `lockHamiltonianMode` giữ rắn ở Hamiltonian cho đến win/loss, kể cả khi số táo trên màn hình giảm về `30` hoặc ít hơn.
+
+Khi dense Hamiltonian đang chạy, nó dùng luồng:
+
+1. `getHamiltonianShortcutDirection()`
+2. `getAStarDirectionForCycle(isHamiltonianShortcutSafe)`
+3. `getHamiltonianDirection()`
+4. `getSurvivalDirection()`
+
+`SERPENTINE_PREP_LENGTH` không tự bật Hamiltonian. Nếu dense condition không còn đúng khi rắn đạt `SERPENTINE_PREP_LENGTH`, rắn sẽ tiếp tục đi vào nhánh serpentine prep bình thường.
 
 ## 3. Serpentine Win Mode
 
 Điều kiện bật:
 
 ```js
+!useHamiltonianMode &&
 snake.length >= SERPENTINE_WIN_LENGTH
 ```
 
@@ -255,6 +313,20 @@ Game gọi `handleWin()`:
 - Đếm ngược 10 giây.
 - Chạy hiệu ứng pháo bông.
 - Restart game sau countdown.
+
+### Táo Khi Bảng Đã Kín
+
+Trước khi xử lý rắn ăn táo, game kiểm tra `isBoardFull()`. Hàm này tính tất cả ô đang bị chiếm bởi:
+
+- Thân rắn.
+- Táo.
+- Bom.
+- Hoa đổi màu.
+- Đom đóm theo ô hiện tại của nó.
+
+Nếu toàn bộ `GRID_SIZE * GRID_SIZE` ô đều đã bị chiếm, táo vẫn biến mất và vẫn cộng điểm khi rắn ăn. Rắn chỉ không dài thêm khi việc ăn táo chưa thể làm rắn phủ kín toàn bộ map; nếu rắn đang dài `GRID_SIZE * GRID_SIZE - 1` và ăn quả táo ở ô cuối cùng, game vẫn cho rắn dài thêm để kích hoạt win.
+
+Game gọi `ensureAppleAvailable()` ở đầu và cuối mỗi tick. Nếu rắn đã chiếm `GRID_SIZE * GRID_SIZE - 1` ô, `ensureFinalAppleAvailable()` sẽ ép đặt một quả táo vào ô duy nhất không thuộc thân rắn và dọn bom/hoa/đom đóm khỏi ô đó nếu cần. Gọi ở đầu tick giúp ô cuối được biến thành táo trước khi đầu rắn đi vào đó. Nếu chưa tới trạng thái cuối game và trên map không còn quả táo nào, hàm này thử spawn ngay một quả táo vào ô trống hiện tại; nếu spawn đó dùng táo từ `appleQueue` thì queue được trừ sau khi spawn thành công.
 
 ## Gợi Ý Tuning
 
@@ -511,6 +583,30 @@ Chỉ số chung nên xem:
 ## Tóm Tắt Luồng Quyết Định
 
 ```text
+Nếu useSerpentineWinMode đã bật
+  -> Serpentine win mode
+     -> Không chuyển sang dense/Hamiltonian nữa trong ván hiện tại
+
+Nếu useHamiltonianMode đã bật
+  -> Dense Hamiltonian mode
+     -> getHamiltonianShortcutDirection()
+     -> A* nếu vẫn an toàn theo Hamiltonian
+     -> Hamiltonian cycle
+     -> survival fallback
+
+Nếu useHamiltonianMode đã bật và snake.length >= HAMILTONIAN_HARD_LOCK_LENGTH
+  -> bật lockHamiltonianMode
+     -> giữ Hamiltonian đến win/loss dù táo giảm
+
+Nếu apples.length > DENSE_APPLE_WIN_THRESHOLD và snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH
+  -> bật useHamiltonianMode
+
+Nếu useHamiltonianMode chưa bật và snake.length > HAMILTONIAN_MOVE_UNTIL_LENGTH
+  -> không dùng Hamiltonian
+     -> safe apple chase nếu có
+     -> serpentine transition/cycle
+     -> survival fallback
+
 Nếu snake.length >= SERPENTINE_WIN_LENGTH
   -> Serpentine win mode
      -> Nếu chưa aligned: transition an toàn
