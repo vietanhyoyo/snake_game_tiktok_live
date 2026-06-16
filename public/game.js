@@ -6,10 +6,13 @@ const BASE_TICK_MS = 60;
 const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% diện tích lưới
 const MAX_BOMBS = 50;
 const MAX_COLOR_FLOWERS = MAX_APPLES;
+const MAX_FIREFLIES = 12;
 const MIN_SNAKE_LENGTH = 3;
 const EXPLOSION_MS = 520;
+const FIREFLY_FLASH_MS = 680;
 const FLOATING_TEXT_MS = 620;
 const GIFT_NOTIFICATION_MS = 1800;
+const LIKE_REWARD_APPLES_PER_FIREFLY = 10;
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
@@ -82,7 +85,9 @@ let snakeDirection = { x: 1, y: 0 };
 let apples = [];
 let bombs = [];
 let colorFlowers = [];
+let fireflies = [];
 let explosions = [];
+let fireflyFlashes = [];
 let floatingTexts = [];
 let appleQueue = 0;
 let score = 0;
@@ -129,9 +134,10 @@ const SOUND_EFFECTS = {
   result: new Audio('/assets/music/effects/wingame.mp3')
 };
 const THEME_TRACKS = [
-  'bit-shift-kevin-macleod-main-version-24901-03-12.mp3',
-  'pixel-drift-pecan-pie-main-version-41106-02-09.mp3',
-  'ready-set-drift-michael-grubb-main-version-24555-02-59.mp3'
+  'Rainbow Run.mp3',
+  'Sunrise Over Moss.mp3',
+  'Tiny Pixel Path.mp3',
+  'Tiny Pixel Path (1).mp3'
 ].map(fileName => encodeURI(`/assets/music/themes/${fileName}`));
 let themeMusic = null;
 let themeTrackIndex = -1;
@@ -254,7 +260,9 @@ function initGame() {
   apples = [];
   bombs = [];
   colorFlowers = [];
+  fireflies = [];
   explosions = [];
+  fireflyFlashes = [];
   floatingTexts = [];
   appleQueue = 0;
   score = 0;
@@ -267,6 +275,8 @@ function initGame() {
 
 // ─── Core Game Loop ───────────────────────────────────────────────────────────
 function tick() {
+  updateFireflies();
+
   // Drain apple queue up to the cap
   while (appleQueue > 0 && apples.length < MAX_APPLES) {
     if (spawnApple()) {
@@ -307,6 +317,8 @@ function tick() {
   const ateBomb = bombIndex !== -1;
   const flowerIndex = colorFlowers.findIndex(flower => flower.x === newHead.x && flower.y === newHead.y);
   const ateColorFlower = flowerIndex !== -1;
+  const fireflyIndex = fireflies.findIndex(firefly => getFireflyCell(firefly).x === newHead.x && getFireflyCell(firefly).y === newHead.y);
+  const ateFirefly = fireflyIndex !== -1;
 
   snake.unshift(newHead);
   if (ateApple) {
@@ -332,6 +344,13 @@ function tick() {
     colorFlowers.splice(flowerIndex, 1);
     cycleColorTheme(false);
     createFloatingText(newHead, 'COLOR', currentTheme.primary);
+    playSoundEffect('apple');
+    snake.pop();
+  } else if (ateFirefly) {
+    const firefly = fireflies[fireflyIndex];
+    fireflies.splice(fireflyIndex, 1);
+    createFireflyFlash(firefly);
+    createFloatingText(newHead, 'FLASH', '#fff7a8');
     playSoundEffect('apple');
     snake.pop();
   } else {
@@ -401,6 +420,7 @@ function restartGame() {
   ];
   snakeDirection = { x: 0, y: -1 };
   explosions = [];
+  fireflyFlashes = [];
   floatingTexts = [];
   colorFlowers = [];
   useSerpentineWinMode = false;
@@ -655,7 +675,8 @@ function isSerpentineShortcutSafe(path, snakeBody, targetApple) {
 function getEdibleTargets() {
   return [
     ...apples.map(apple => ({ ...apple, type: 'apple', grows: true })),
-    ...colorFlowers.map(flower => ({ ...flower, type: 'colorFlower', grows: false }))
+    ...colorFlowers.map(flower => ({ ...flower, type: 'colorFlower', grows: false })),
+    ...fireflies.map(firefly => ({ ...getFireflyCell(firefly), type: 'firefly', grows: false }))
   ];
 }
 
@@ -1026,13 +1047,45 @@ function spawnColorFlower() {
   return spawnItem(colorFlowers, MAX_COLOR_FLOWERS);
 }
 
+function spawnFirefly() {
+  if (fireflies.length >= MAX_FIREFLIES) return false;
+
+  const occupied = new Set([
+    ...snake.map(cellKey),
+    ...apples.map(cellKey),
+    ...bombs.map(cellKey),
+    ...colorFlowers.map(cellKey),
+    ...fireflies.map(firefly => cellKey(getFireflyCell(firefly)))
+  ]);
+  const empty = [];
+  for (let x = 0; x < GRID_SIZE; x++) {
+    for (let y = 0; y < GRID_SIZE; y++) {
+      if (!occupied.has(`${x},${y}`)) empty.push({ x, y });
+    }
+  }
+  if (empty.length === 0) return false;
+
+  const cell = empty[Math.floor(Math.random() * empty.length)];
+  const angle = Math.random() * Math.PI * 2;
+  fireflies.push({
+    x: cell.x + 0.5,
+    y: cell.y + 0.5,
+    vx: Math.cos(angle) * 0.055,
+    vy: Math.sin(angle) * 0.055,
+    phase: Math.random() * Math.PI * 2,
+    spawnTime: Date.now()
+  });
+  return true;
+}
+
 function spawnItem(collection, maxItems = Infinity) {
   if (collection.length >= maxItems) return false;
   const occupied = new Set([
     ...snake.map(s => `${s.x},${s.y}`),
     ...apples.map(a => `${a.x},${a.y}`),
     ...bombs.map(b => `${b.x},${b.y}`),
-    ...colorFlowers.map(flower => `${flower.x},${flower.y}`)
+    ...colorFlowers.map(flower => `${flower.x},${flower.y}`),
+    ...fireflies.map(firefly => cellKey(getFireflyCell(firefly)))
   ]);
   const empty = [];
   for (let x = 0; x < GRID_SIZE; x++) {
@@ -1044,6 +1097,43 @@ function spawnItem(collection, maxItems = Infinity) {
   const cell = empty[Math.floor(Math.random() * empty.length)];
   collection.push({ x: cell.x, y: cell.y, spawnTime: Date.now() });
   return true;
+}
+
+function getFireflyCell(firefly) {
+  return {
+    x: Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(firefly.x))),
+    y: Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(firefly.y)))
+  };
+}
+
+function updateFireflies() {
+  const now = Date.now();
+
+  fireflies.forEach(firefly => {
+    const drift = now * 0.003 + firefly.phase;
+    firefly.vx += Math.cos(drift * 0.7) * 0.004;
+    firefly.vy += Math.sin(drift * 0.9) * 0.004;
+
+    const speed = Math.hypot(firefly.vx, firefly.vy) || 1;
+    const maxSpeed = 0.08;
+    if (speed > maxSpeed) {
+      firefly.vx = (firefly.vx / speed) * maxSpeed;
+      firefly.vy = (firefly.vy / speed) * maxSpeed;
+    }
+
+    firefly.x = (firefly.x + firefly.vx + GRID_SIZE) % GRID_SIZE;
+    firefly.y = (firefly.y + firefly.vy + GRID_SIZE) % GRID_SIZE;
+  });
+}
+
+function createFireflyFlash(firefly) {
+  if (!firefly) return;
+
+  fireflyFlashes.push({
+    x: firefly.x * CELL_SIZE,
+    y: firefly.y * CELL_SIZE,
+    startTime: Date.now()
+  });
 }
 
 function createExplosion(cell) {
@@ -1536,8 +1626,45 @@ function render() {
   // Snake eyes
   drawEyes(snake[0], snakeDirection);
 
+  drawFireflies();
   drawExplosions();
+  drawFireflyFlashes();
   drawFloatingTexts();
+}
+
+function drawFireflies() {
+  fireflies.forEach(firefly => {
+    const px = firefly.x * CELL_SIZE;
+    const py = firefly.y * CELL_SIZE;
+    const age = Date.now() - firefly.spawnTime;
+    const scale = age < 420 ? easeOutBack(age / 420) : 1;
+    const pulse = 0.5 + (Math.sin(Date.now() / 150 + firefly.phase) + 1) * 0.5;
+    const glowRadius = CELL_SIZE * (0.22 + pulse * 0.34);
+    const dotRadius = CELL_SIZE * (0.055 + pulse * 0.045);
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.scale(scale, scale);
+    ctx.globalCompositeOperation = 'lighter';
+
+    const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, glowRadius);
+    glow.addColorStop(0, `rgba(255, 255, 220, ${0.45 + pulse * 0.4})`);
+    glow.addColorStop(0.45, `rgba(250, 204, 21, ${0.18 + pulse * 0.28})`);
+    glow.addColorStop(1, 'rgba(250, 204, 21, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowColor = '#fff7a8';
+    ctx.shadowBlur = 5 + pulse * 8;
+    ctx.fillStyle = `rgba(255, 250, 190, ${0.62 + pulse * 0.38})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, dotRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  });
 }
 
 function drawExplosions() {
@@ -1571,6 +1698,45 @@ function drawExplosions() {
       ctx.arc(px, py, particle.size * alpha, 0, Math.PI * 2);
       ctx.fill();
     });
+
+    ctx.restore();
+  });
+}
+
+function drawFireflyFlashes() {
+  const now = Date.now();
+  fireflyFlashes = fireflyFlashes.filter(flash => now - flash.startTime < FIREFLY_FLASH_MS);
+
+  fireflyFlashes.forEach(flash => {
+    const age = now - flash.startTime;
+    const t = Math.min(age / FIREFLY_FLASH_MS, 1);
+    const alpha = 1 - t;
+    const radius = CELL_SIZE * (0.6 + 3.6 * t);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha;
+
+    const burst = ctx.createRadialGradient(flash.x, flash.y, 0, flash.x, flash.y, radius);
+    burst.addColorStop(0, 'rgba(255, 255, 245, 1)');
+    burst.addColorStop(0.3, 'rgba(255, 247, 168, 0.75)');
+    burst.addColorStop(1, 'rgba(255, 247, 168, 0)');
+    ctx.fillStyle = burst;
+    ctx.beginPath();
+    ctx.arc(flash.x, flash.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = `rgba(255, 255, 245, ${alpha})`;
+    ctx.lineWidth = Math.max(1, 3 * alpha);
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * 2 * i) / 8;
+      const inner = CELL_SIZE * (0.24 + t * 0.8);
+      const outer = CELL_SIZE * (0.95 + t * 2.2);
+      ctx.beginPath();
+      ctx.moveTo(flash.x + Math.cos(angle) * inner, flash.y + Math.sin(angle) * inner);
+      ctx.lineTo(flash.x + Math.cos(angle) * outer, flash.y + Math.sin(angle) * outer);
+      ctx.stroke();
+    }
 
     ctx.restore();
   });
@@ -1851,6 +2017,8 @@ function applyLikeReward(data) {
 
   totalHearts = Number(data.likeCount) || totalHearts;
   appleQueue += appleCount;
+  const fireflyCount = Math.max(1, Math.floor(appleCount / LIKE_REWARD_APPLES_PER_FIREFLY));
+  for (let i = 0; i < fireflyCount; i++) spawnFirefly();
   showGiftNotification({
     ...data,
     giftName: 'Tap tim',
