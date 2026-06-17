@@ -30,7 +30,7 @@ const SHORT_MODE_RANDOMNESS = 0.02;
 const RANDOM_TOP_CANDIDATES = 2;
 const APPLE_CHASE_LENGTH = 70;
 const DENSE_APPLE_WIN_THRESHOLD = 30;
-const SERPENTINE_PREP_LENGTH = 150;
+const SERPENTINE_PREP_LENGTH = 120;
 ```
 
 Trong phase này, rắn ưu tiên ăn táo bằng A*:
@@ -65,11 +65,11 @@ Luồng xử lý:
 4. Nếu vẫn không có hướng ăn an toàn, đi tiếp trên `getHamiltonianDirection()`.
 5. Nếu nước Hamiltonian kế tiếp bị chặn, fallback sang `getSurvivalDirection()`.
 
-Mode này chỉ được bật trong giai đoạn `snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH`. Nếu rắn đã vượt ngưỡng này khi `useHamiltonianMode` vẫn false, AI không được vào Hamiltonian nữa và chuyển sang luồng serpentine/survival.
+Mode này chỉ được bật trong giai đoạn `snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH`. Nếu rắn đã vượt ngưỡng này khi `useHamiltonianMode` vẫn false, AI không được vào Hamiltonian nữa và chuyển sang luồng single-apple maze, serpentine hoặc survival tùy điều kiện hiện tại.
 
 ### 2. Hilbert Mode
 
-Sau short mode và trước serpentine win mode, AI dùng Hilbert curve làm cycle an toàn.
+Sau short mode và trước các win mode đặc biệt, AI dùng Hilbert curve làm cycle an toàn. Nếu về late game chỉ còn một quả táo và có đường ăn an toàn, Single Apple Maze Mode có thể chen vào trước serpentine.
 
 Hilbert curve thay cho kiểu quét hàng đơn giản vì nó tạo đường đi ngoằn ngoèo tự nhiên hơn, ít cảm giác "từ trái sang phải, từ trên xuống dưới".
 
@@ -92,7 +92,7 @@ Trong phase này AI ưu tiên:
 Tradeoff:
 
 - Giảm `APPLE_CHASE_LENGTH`: rắn bắt đầu bám táo mạnh hơn sớm hơn, nhưng rời cycle an toàn nhiều hơn.
-- Tăng `SERPENTINE_PREP_LENGTH`: rắn bám táo lâu hơn trước khi bắt đầu prep serpentine.
+- Tăng `SERPENTINE_PREP_LENGTH`: rắn bám táo lâu hơn trước khi bắt đầu prep serpentine hoặc được phép bật single-apple maze.
 
 ### Dense Hamiltonian Window
 
@@ -129,6 +129,71 @@ Khi dense Hamiltonian đang chạy, nó dùng luồng:
 
 `SERPENTINE_PREP_LENGTH` không tự bật Hamiltonian. Nếu dense condition không còn đúng khi rắn đạt `SERPENTINE_PREP_LENGTH`, rắn sẽ tiếp tục đi vào nhánh serpentine prep bình thường.
 
+## Single Apple Maze Mode
+
+Mode này xử lý trường hợp late game khi trên map chỉ còn một quả táo. Mục tiêu là cho rắn đi theo một đường mê cung nhìn có vẻ mất trật tự, giống hành lang maze, nhưng thực chất vẫn là một cycle an toàn phủ toàn bộ bàn.
+
+Điều kiện bật:
+
+```js
+isSingleAppleMazeCheckActive() &&
+hasSafeSingleApplePath()
+```
+
+`isSingleAppleMazeCheckActive()` mở một cửa sổ kiểm tra trong `SINGLE_APPLE_MAZE_CHECK_MS = 10000` mili giây. Cửa sổ này chỉ active khi:
+
+- Chưa bật `useSingleAppleMazeMode`.
+- Không đang ở `useHamiltonianMode`.
+- `snake.length > SERPENTINE_PREP_LENGTH`.
+- Trên map có đúng `1` quả táo.
+
+Điểm quan trọng: `snake.length` phải lớn hơn `SERPENTINE_PREP_LENGTH`, không phải lớn hơn hoặc bằng. Trong 10 giây đó, mỗi tick AI check lại `hasSafeSingleApplePath()`. Mode chỉ bật nếu hàm này chứng minh hiện tại có đường A* tới quả táo duy nhất và đường đó qua được `isPathSafe()`. Nếu quả táo đổi hoặc số apple không còn đúng `1`, cửa sổ kiểm tra reset.
+
+### Cấu Trúc Maze Cycle
+
+Maze cycle không dùng serpentine quét ngang và cũng không dùng Hilbert curve. Game hiện có 3 kiểu corridor trong `MAZE_VARIANTS`; mỗi kiểu dùng seed, điểm bắt đầu DFS và trọng số hướng khác nhau:
+
+- `long-corridor`: ưu tiên giữ hướng và đi dọc nhiều hơn, tạo hành lang dài.
+- `wide-corridor`: ưu tiên ngang nhiều hơn, tạo cảm giác maze trải rộng.
+- `broken-corridor`: giảm ưu tiên giữ hướng, tạo nhiều đoạn gãy và ngã rẽ ngắn.
+
+Các hàm sinh maze:
+
+- `createSeededRandom(seed)`: tạo random có seed cố định cho từng variant, để mỗi kiểu maze ổn định khi được chọn.
+- `buildMazeTreeEdges(variant)`: sinh maze thô 8x8 bằng DFS có trọng số theo variant.
+- `getMazeBlockCells()`: phóng mỗi ô maze 8x8 thành block 2x2 trên bàn 16x16.
+- `spliceMazeBlocks()`: nối các block 2x2 theo cạnh của cây maze, tạo một đường corridor duy nhất.
+- `createMazeCycleCells(variant)`: xuất ra danh sách 256 ô theo thứ tự cycle cho một variant.
+- `createMazeLayout(variant)`: prebuild `cells` và `indexByCell` để AI lookup nhanh khi chạy.
+
+Kết quả là `MAZE_LAYOUTS`: 3 đường đi khác nhau, mỗi đường phủ đủ `GRID_SIZE * GRID_SIZE` ô. Mỗi ô xuất hiện đúng một lần, và ô kế tiếp luôn là hàng xóm liền kề. Vì vậy rắn có thể đi theo cycle đang active đến cuối game mà không tự nhốt mình, miễn là thứ tự đầu/đuôi trên cycle còn an toàn.
+
+Mỗi game gọi `selectRandomMazeVariant()` trong `initGame()` hoặc `restartGame()`. Nếu có nhiều hơn một layout, hàm này tránh chọn lại đúng layout vừa dùng ở ván trước để chuyển động đỡ nhàm chán.
+
+Các helper chính:
+
+- `getMazeIndex(cell)`: đổi ô thành thứ tự trên maze cycle.
+- `getCellByMazeIndex(index)`: đổi thứ tự maze về ô.
+- `getActiveMazeLayout()`: lấy layout corridor đang được áp dụng cho ván hiện tại.
+- `getMazeDirection()`: bước kế tiếp trên maze cycle.
+- `isSnakeAlignedToMaze()`: kiểm tra thân rắn đã nằm đúng thứ tự maze chưa.
+- `getMazeMoveCandidates()`: lấy các nước đi hợp lệ theo maze.
+- `getMazeShortcutDirection()`: shortcut an toàn theo maze.
+- `isMazeShortcutSafe()`: kiểm tra shortcut bằng `isCycleShortcutSafe()` nhưng dùng `getMazeIndex`.
+
+### Luồng Chạy
+
+Khi `useSingleAppleMazeMode` đã bật, AI gọi `getSingleAppleMazeDirection()` trước các mode win khác:
+
+1. Nếu thân chưa aligned với maze, dùng `getMazeTransitionDirection()` để dần đưa thân vào thứ tự maze.
+2. Khi đã aligned, thử `getSingleAppleSafePathDirection()` để ăn quả táo duy nhất bằng A*.
+3. Đường A* chỉ được dùng nếu qua `isPathSafe()` và `isMazeShortcutSafe()`.
+4. Nếu không có đường ăn táo an toàn, thử `getMazeShortcutDirection()`.
+5. Nếu không có shortcut, đi tiếp bằng `getMazeDirection()`.
+6. Nếu nước maze kế tiếp bị chặn, fallback sang `getSurvivalDirection()`.
+
+`getMazeTransitionDirection()` vẫn mô phỏng từng nước bằng `simulateMove()` và chỉ nhận candidate qua `isSimulatedMoveSafe()`. Scoring ưu tiên hướng maze, đường tới táo nếu an toàn, và ô ít bị body pressure để thân rắn dễ xếp lại thành hành lang.
+
 ## 3. Serpentine Win Mode
 
 Điều kiện bật:
@@ -141,7 +206,7 @@ snake.length >= SERPENTINE_WIN_LENGTH
 Hiện tại:
 
 ```js
-const SERPENTINE_PREP_LENGTH = 150;
+const SERPENTINE_PREP_LENGTH = 120;
 const SERPENTINE_WIN_LENGTH = 180;
 const SERPENTINE_STRICT_LENGTH = 220;
 const SERPENTINE_LOOSE_GAP_CHANCE = 0.18;
@@ -149,6 +214,12 @@ const SERPENTINE_LOOSE_GAP_END_LENGTH = 200;
 const SERPENTINE_LOOSE_GAP_RECOVERY_TICKS = 10;
 const SERPENTINE_BODY_ADJACENCY_WEIGHT = 20;
 const SERPENTINE_BODY_PRESSURE_WEIGHT = 6;
+const SINGLE_APPLE_MAZE_CHECK_MS = 10000;
+const MAZE_VARIANTS = [
+  'long-corridor',
+  'wide-corridor',
+  'broken-corridor'
+];
 ```
 
 Serpentine là cycle kiểu quét hàng:
@@ -270,10 +341,11 @@ Mô phỏng rắn đi theo một path tới táo:
 
 Kiểm tra shortcut có còn nằm trong khoảng an toàn giữa đầu và đuôi trên cycle không.
 
-Được dùng cho cả Hilbert và Serpentine:
+Được dùng cho Hilbert, Serpentine và Maze:
 
 - `isHamiltonianShortcutSafe()`
 - `isSerpentineShortcutSafe()`
+- `isMazeShortcutSafe()`
 
 ### `isSimulatedMoveSafe()`
 
@@ -583,16 +655,10 @@ Chỉ số chung nên xem:
 ## Tóm Tắt Luồng Quyết Định
 
 ```text
-Nếu useSerpentineWinMode đã bật
-  -> Serpentine win mode
-     -> Không chuyển sang dense/Hamiltonian nữa trong ván hiện tại
-
-Nếu useHamiltonianMode đã bật
-  -> Dense Hamiltonian mode
-     -> getHamiltonianShortcutDirection()
-     -> A* nếu vẫn an toàn theo Hamiltonian
-     -> Hamiltonian cycle
-     -> survival fallback
+Khi initGame() hoặc restartGame()
+  -> selectRandomMazeVariant()
+     -> chọn 1 trong 3 corridor layout
+     -> tránh lặp layout vừa dùng nếu có thể
 
 Nếu useHamiltonianMode đã bật và snake.length >= HAMILTONIAN_HARD_LOCK_LENGTH
   -> bật lockHamiltonianMode
@@ -601,17 +667,40 @@ Nếu useHamiltonianMode đã bật và snake.length >= HAMILTONIAN_HARD_LOCK_LE
 Nếu apples.length > DENSE_APPLE_WIN_THRESHOLD và snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH
   -> bật useHamiltonianMode
 
-Nếu useHamiltonianMode chưa bật và snake.length > HAMILTONIAN_MOVE_UNTIL_LENGTH
-  -> không dùng Hamiltonian
-     -> safe apple chase nếu có
-     -> serpentine transition/cycle
+Nếu useHamiltonianMode đã bật, chưa hard lock, và apples.length <= DENSE_APPLE_WIN_THRESHOLD
+  -> tắt useHamiltonianMode
+
+Nếu chưa useSingleAppleMazeMode, chưa useHamiltonianMode,
+snake.length > SERPENTINE_PREP_LENGTH, và apples.length === 1
+  -> isSingleAppleMazeCheckActive()
+     -> mở hoặc duy trì cửa sổ kiểm tra 10 giây cho apple hiện tại
+
+Nếu isSingleAppleMazeCheckActive() và hasSafeSingleApplePath()
+  -> bật useSingleAppleMazeMode
+
+Nếu useSingleAppleMazeMode đã bật
+  -> Single Apple Maze mode
+     -> Nếu chưa aligned maze: getMazeTransitionDirection()
+     -> Nếu aligned: A* tới apple nếu qua isPathSafe() và isMazeShortcutSafe()
+     -> getMazeShortcutDirection()
+     -> getMazeDirection()
      -> survival fallback
 
-Nếu snake.length >= SERPENTINE_WIN_LENGTH
+Nếu snake.length >= SERPENTINE_WIN_LENGTH và chưa useHamiltonianMode
+  -> bật useSerpentineWinMode
+
+Nếu useSerpentineWinMode đã bật
   -> Serpentine win mode
      -> Nếu chưa aligned: transition an toàn
      -> Nếu playful: A*/shortcut theo táo
      -> Nếu strict: ưu tiên cycle để win
+
+Nếu useHamiltonianMode đã bật
+  -> Dense Hamiltonian mode
+     -> getHamiltonianShortcutDirection()
+     -> A* nếu vẫn an toàn theo Hamiltonian
+     -> Hamiltonian cycle
+     -> survival fallback
 
 Nếu SERPENTINE_PREP_LENGTH <= snake.length < SERPENTINE_WIN_LENGTH
   -> Nếu cooldown loose-gap còn: giảm cooldown

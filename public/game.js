@@ -37,6 +37,33 @@ const SERPENTINE_LOOSE_GAP_END_LENGTH = 200;
 const SERPENTINE_LOOSE_GAP_RECOVERY_TICKS = 10;
 const SERPENTINE_BODY_ADJACENCY_WEIGHT = 20;
 const SERPENTINE_BODY_PRESSURE_WEIGHT = 6;
+const SINGLE_APPLE_MAZE_CHECK_MS = 10000;
+const MAZE_VARIANTS = [
+  {
+    name: 'long-corridor',
+    seed: 0x5eed2026,
+    start: { x: 0, y: 7 },
+    straightWeight: 4.4,
+    verticalWeight: 2.2,
+    horizontalWeight: 1.0
+  },
+  {
+    name: 'wide-corridor',
+    seed: 0xc0ffee16,
+    start: { x: 7, y: 7 },
+    straightWeight: 3.0,
+    verticalWeight: 1.0,
+    horizontalWeight: 2.4
+  },
+  {
+    name: 'broken-corridor',
+    seed: 0xbadc0de,
+    start: { x: 3, y: 4 },
+    straightWeight: 1.35,
+    verticalWeight: 1.65,
+    horizontalWeight: 1.45
+  }
+];
 const COLOR_THEMES = [
   { primary: '#00ff88', strong: '#00cc6a', soft: '#0a1a0f', rgb: [0, 255, 136], tailRgb: [0, 80, 51] },
   { primary: '#38bdf8', strong: '#0284c7', soft: '#071a24', rgb: [56, 189, 248], tailRgb: [8, 70, 110] },
@@ -122,6 +149,10 @@ let fireworks = [];
 let useHamiltonianMode = false;
 let lockHamiltonianMode = false;
 let useSerpentineWinMode = false;
+let useSingleAppleMazeMode = false;
+let activeMazeVariantIndex = -1;
+let singleAppleMazeCheckUntil = 0;
+let singleAppleMazeCheckAppleKey = null;
 let colorThemeIndex = 0;
 let currentTheme = COLOR_THEMES[colorThemeIndex];
 let serpentineLooseGapCooldown = 0;
@@ -291,7 +322,11 @@ function initGame() {
   useHamiltonianMode = false;
   lockHamiltonianMode = false;
   useSerpentineWinMode = false;
+  useSingleAppleMazeMode = false;
   serpentineLooseGapCooldown = 0;
+  singleAppleMazeCheckUntil = 0;
+  singleAppleMazeCheckAppleKey = null;
+  selectRandomMazeVariant();
   spawnApple();
   if (gameLoopInterval) clearInterval(gameLoopInterval);
   gameLoopInterval = setInterval(tick, BASE_TICK_MS);
@@ -455,7 +490,11 @@ function restartGame() {
   useHamiltonianMode = false;
   lockHamiltonianMode = false;
   useSerpentineWinMode = false;
+  useSingleAppleMazeMode = false;
   serpentineLooseGapCooldown = 0;
+  singleAppleMazeCheckUntil = 0;
+  singleAppleMazeCheckAppleKey = null;
+  selectRandomMazeVariant();
   if (apples.length === 0) spawnApple();
   render();
   updateUI();
@@ -622,6 +661,207 @@ function getCellByHamiltonianIndex(index) {
   return cell;
 }
 
+function createSeededRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+}
+
+function parseCellKey(key) {
+  const [x, y] = key.split(',').map(Number);
+  return { x, y };
+}
+
+function addMazeEdge(edges, a, b) {
+  const ak = cellKey(a);
+  const bk = cellKey(b);
+  edges.get(ak).add(bk);
+  edges.get(bk).add(ak);
+}
+
+function removeMazeEdge(edges, a, b) {
+  const ak = cellKey(a);
+  const bk = cellKey(b);
+  edges.get(ak).delete(bk);
+  edges.get(bk).delete(ak);
+}
+
+function getMazeBlockCells(block) {
+  const x = block.x * 2;
+  const y = block.y * 2;
+  return {
+    tl: { x, y },
+    tr: { x: x + 1, y },
+    br: { x: x + 1, y: y + 1 },
+    bl: { x, y: y + 1 }
+  };
+}
+
+function buildMazeTreeEdges(variant) {
+  const coarseSize = GRID_SIZE / 2;
+  const random = createSeededRandom(variant.seed);
+  const visited = new Set();
+  const start = variant.start ?? { x: 0, y: coarseSize - 1 };
+  const stack = [{ x: start.x, y: start.y, dir: null }];
+  const treeEdges = [];
+  visited.add(cellKey(stack[0]));
+
+  const dirs = [
+    { x: 1, y: 0 }, { x: -1, y: 0 },
+    { x: 0, y: 1 }, { x: 0, y: -1 }
+  ];
+
+  while (stack.length > 0) {
+    const current = stack[stack.length - 1];
+    const neighbors = dirs
+      .map(dir => ({
+        dir,
+        cell: { x: current.x + dir.x, y: current.y + dir.y }
+      }))
+      .filter(item => {
+        return item.cell.x >= 0 &&
+          item.cell.x < coarseSize &&
+          item.cell.y >= 0 &&
+          item.cell.y < coarseSize &&
+          !visited.has(cellKey(item.cell));
+      });
+
+    if (neighbors.length === 0) {
+      stack.pop();
+      continue;
+    }
+
+    const weighted = neighbors.map(item => {
+      const keepsDirection = current.dir &&
+        item.dir.x === current.dir.x &&
+        item.dir.y === current.dir.y;
+      return {
+        ...item,
+        weight: keepsDirection
+          ? variant.straightWeight
+          : (item.dir.y !== 0 ? variant.verticalWeight : variant.horizontalWeight)
+      };
+    });
+    const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
+    let roll = random() * totalWeight;
+    let chosen = weighted[weighted.length - 1];
+
+    for (const item of weighted) {
+      roll -= item.weight;
+      if (roll <= 0) {
+        chosen = item;
+        break;
+      }
+    }
+
+    treeEdges.push({ from: { x: current.x, y: current.y }, to: chosen.cell });
+    visited.add(cellKey(chosen.cell));
+    stack.push({ ...chosen.cell, dir: chosen.dir });
+  }
+
+  return treeEdges;
+}
+
+function spliceMazeBlocks(edges, from, to) {
+  const a = getMazeBlockCells(from);
+  const b = getMazeBlockCells(to);
+
+  if (to.x === from.x + 1) {
+    removeMazeEdge(edges, a.tr, a.br);
+    removeMazeEdge(edges, b.tl, b.bl);
+    addMazeEdge(edges, a.tr, b.tl);
+    addMazeEdge(edges, a.br, b.bl);
+  } else if (to.x === from.x - 1) {
+    spliceMazeBlocks(edges, to, from);
+  } else if (to.y === from.y + 1) {
+    removeMazeEdge(edges, a.bl, a.br);
+    removeMazeEdge(edges, b.tl, b.tr);
+    addMazeEdge(edges, a.bl, b.tl);
+    addMazeEdge(edges, a.br, b.tr);
+  } else if (to.y === from.y - 1) {
+    spliceMazeBlocks(edges, to, from);
+  }
+}
+
+function createMazeCycleCells(variant) {
+  const edges = new Map();
+  for (let x = 0; x < GRID_SIZE; x++) {
+    for (let y = 0; y < GRID_SIZE; y++) {
+      edges.set(`${x},${y}`, new Set());
+    }
+  }
+
+  for (let x = 0; x < GRID_SIZE; x += 2) {
+    for (let y = 0; y < GRID_SIZE; y += 2) {
+      const block = getMazeBlockCells({ x: x / 2, y: y / 2 });
+      addMazeEdge(edges, block.tl, block.tr);
+      addMazeEdge(edges, block.tr, block.br);
+      addMazeEdge(edges, block.br, block.bl);
+      addMazeEdge(edges, block.bl, block.tl);
+    }
+  }
+
+  buildMazeTreeEdges(variant).forEach(edge => {
+    spliceMazeBlocks(edges, edge.from, edge.to);
+  });
+
+  const startKey = '0,0';
+  const cells = [];
+  let previousKey = null;
+  let currentKey = startKey;
+
+  for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+    cells.push(parseCellKey(currentKey));
+    const neighbors = [...edges.get(currentKey)].sort();
+    const nextKey = previousKey === null
+      ? neighbors[0]
+      : neighbors.find(key => key !== previousKey);
+    previousKey = currentKey;
+    currentKey = nextKey;
+  }
+
+  return cells;
+}
+
+function createMazeLayout(variant) {
+  const cells = createMazeCycleCells(variant);
+  return {
+    ...variant,
+    cells,
+    indexByCell: new Map(cells.map((cell, index) => [cellKey(cell), index]))
+  };
+}
+
+const MAZE_LAYOUTS = MAZE_VARIANTS.map(createMazeLayout);
+
+function getActiveMazeLayout() {
+  return MAZE_LAYOUTS[activeMazeVariantIndex] ?? MAZE_LAYOUTS[0];
+}
+
+function selectRandomMazeVariant() {
+  if (MAZE_LAYOUTS.length <= 1) {
+    activeMazeVariantIndex = 0;
+    return;
+  }
+
+  let nextIndex = Math.floor(Math.random() * MAZE_LAYOUTS.length);
+  while (activeMazeVariantIndex >= 0 && nextIndex === activeMazeVariantIndex) {
+    nextIndex = Math.floor(Math.random() * MAZE_LAYOUTS.length);
+  }
+  activeMazeVariantIndex = nextIndex;
+}
+
+function getMazeIndex(cell) {
+  return getActiveMazeLayout().indexByCell.get(cellKey(cell)) ?? 0;
+}
+
+function getCellByMazeIndex(index) {
+  const wrapped = (index + GRID_SIZE * GRID_SIZE) % (GRID_SIZE * GRID_SIZE);
+  return getActiveMazeLayout().cells[wrapped];
+}
+
 function getSerpentineIndex(cell) {
   return cell.y % 2 === 0
     ? cell.y * GRID_SIZE + cell.x
@@ -653,6 +893,10 @@ function getHamiltonianDirection() {
   return getCycleDirection(getHamiltonianIndex, getCellByHamiltonianIndex);
 }
 
+function getMazeDirection() {
+  return getCycleDirection(getMazeIndex, getCellByMazeIndex);
+}
+
 function getSerpentineDirection() {
   return getCycleDirection(getSerpentineIndex, getCellBySerpentineIndex);
 }
@@ -667,6 +911,10 @@ function isSnakeAlignedToCycle(getIndex) {
 
 function isSnakeAlignedToHamiltonian() {
   return isSnakeAlignedToCycle(getHamiltonianIndex);
+}
+
+function isSnakeAlignedToMaze() {
+  return isSnakeAlignedToCycle(getMazeIndex);
 }
 
 function isSnakeAlignedToSerpentine() {
@@ -701,6 +949,10 @@ function isHamiltonianShortcutSafe(path, snakeBody, targetApple) {
 
 function isSerpentineShortcutSafe(path, snakeBody, targetApple) {
   return isCycleShortcutSafe(path, snakeBody, targetApple, getSerpentineIndex);
+}
+
+function isMazeShortcutSafe(path, snakeBody, targetApple) {
+  return isCycleShortcutSafe(path, snakeBody, targetApple, getMazeIndex);
 }
 
 function getEdibleTargets() {
@@ -798,12 +1050,21 @@ function getHamiltonianMoveCandidates() {
   return getCycleMoveCandidates(getHamiltonianIndex);
 }
 
+function getMazeMoveCandidates() {
+  return getCycleMoveCandidates(getMazeIndex);
+}
+
 function getSerpentineMoveCandidates() {
   return getCycleMoveCandidates(getSerpentineIndex);
 }
 
 function getHamiltonianShortcutDirection() {
   const best = getHamiltonianMoveCandidates()[0];
+  return best?.dir ?? null;
+}
+
+function getMazeShortcutDirection() {
+  const best = getMazeMoveCandidates()[0];
   return best?.dir ?? null;
 }
 
@@ -1084,6 +1345,112 @@ function getSerpentineWinDirection() {
   if (astarDir) return astarDir;
 
   const cycleDir = getSerpentineDirection();
+  const cycleHead = {
+    x: (head.x + cycleDir.x + GRID_SIZE) % GRID_SIZE,
+    y: (head.y + cycleDir.y + GRID_SIZE) % GRID_SIZE
+  };
+  if (!isBodyCollision(cycleHead)) return cycleDir;
+
+  return getSurvivalDirection(head, snake, snakeDirection);
+}
+
+function getMazeTransitionDirection() {
+  const preferred = getMazeDirection();
+  const dirs = [
+    { x: 1, y: 0 }, { x: -1, y: 0 },
+    { x: 0, y: 1 }, { x: 0, y: -1 }
+  ].filter(dir => !(dir.x === -snakeDirection.x && dir.y === -snakeDirection.y));
+
+  const headIndex = getMazeIndex(snake[0]);
+  let best = null;
+
+  for (const dir of dirs) {
+    const simulation = simulateMove(dir);
+    if (!isSimulatedMoveSafe(simulation)) continue;
+
+    const advance = cycleDistance(headIndex, getMazeIndex(simulation.next));
+    if (advance === 0) continue;
+
+    const preferredBonus = dir.x === preferred.x && dir.y === preferred.y ? -1000 : 0;
+    const appleBonus = simulation.eats ? -180 : 0;
+    const appleDistance = getNearestAppleDistance(simulation.next);
+    const bodyAdjacency = countAdjacentBodyCells(simulation.next, simulation.simSnake);
+    const bodyPressure = countNearbyBodyCells(simulation.next, simulation.simSnake);
+    const score =
+      preferredBonus +
+      appleBonus +
+      advance * 0.9 +
+      appleDistance * 0.5 +
+      bodyAdjacency * SERPENTINE_BODY_ADJACENCY_WEIGHT +
+      bodyPressure * SERPENTINE_BODY_PRESSURE_WEIGHT;
+
+    if (!best || score < best.score) best = { dir, score };
+  }
+
+  return best?.dir ?? getSurvivalDirection(snake[0], snake, snakeDirection);
+}
+
+function hasSafeSingleApplePath() {
+  if (apples.length !== 1) return false;
+
+  const target = { ...apples[0], type: 'apple', grows: true };
+  const path = astar(snake[0], target, snake);
+  return Boolean(path && path.length >= 2 && isPathSafe(path, snake, target));
+}
+
+function isSingleAppleMazeCheckActive() {
+  const appleKey = apples.length === 1 ? cellKey(apples[0]) : null;
+  const canTrack =
+    !useSingleAppleMazeMode &&
+    !useHamiltonianMode &&
+    snake.length > SERPENTINE_PREP_LENGTH &&
+    appleKey;
+
+  if (!canTrack) {
+    singleAppleMazeCheckUntil = 0;
+    singleAppleMazeCheckAppleKey = null;
+    return false;
+  }
+
+  const now = Date.now();
+  if (singleAppleMazeCheckAppleKey !== appleKey) {
+    singleAppleMazeCheckAppleKey = appleKey;
+    singleAppleMazeCheckUntil = now + SINGLE_APPLE_MAZE_CHECK_MS;
+  }
+
+  return now <= singleAppleMazeCheckUntil;
+}
+
+function getSingleAppleSafePathDirection() {
+  if (apples.length !== 1 || !isSnakeAlignedToMaze()) return null;
+
+  const target = { ...apples[0], type: 'apple', grows: true };
+  const path = astar(snake[0], target, snake);
+  if (!path || path.length < 2) return null;
+  if (!isPathSafe(path, snake, target)) return null;
+  if (!isMazeShortcutSafe(path, snake, target)) return null;
+
+  const dir = directionTo(snake[0], path[1]);
+  const simulation = simulateMove(dir);
+  if (!isSimulatedMoveSafe(simulation)) return null;
+
+  return dir;
+}
+
+function getSingleAppleMazeDirection() {
+  const head = snake[0];
+
+  if (!isSnakeAlignedToMaze()) {
+    return getMazeTransitionDirection();
+  }
+
+  const safeAppleDir = getSingleAppleSafePathDirection();
+  if (safeAppleDir) return safeAppleDir;
+
+  const shortcutDir = getMazeShortcutDirection();
+  if (shortcutDir) return shortcutDir;
+
+  const cycleDir = getMazeDirection();
   const cycleHead = {
     x: (head.x + cycleDir.x + GRID_SIZE) % GRID_SIZE,
     y: (head.y + cycleDir.y + GRID_SIZE) % GRID_SIZE
@@ -1442,6 +1809,17 @@ function getAIDirection() {
   if (useHamiltonianMode && !lockHamiltonianMode && !isDenseAppleWinMode()) {
     useHamiltonianMode = false;
   }
+
+  if (
+    isSingleAppleMazeCheckActive() &&
+    hasSafeSingleApplePath()
+  ) {
+    useSingleAppleMazeMode = true;
+    singleAppleMazeCheckUntil = 0;
+    singleAppleMazeCheckAppleKey = null;
+  }
+
+  if (useSingleAppleMazeMode) return getSingleAppleMazeDirection();
 
   if (!useSerpentineWinMode && !useHamiltonianMode && snake.length >= SERPENTINE_WIN_LENGTH) {
     useSerpentineWinMode = true;
