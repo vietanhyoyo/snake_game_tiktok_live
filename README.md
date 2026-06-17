@@ -46,7 +46,7 @@ Trong browser:
 - Nhấn phím `3` để giả lập Chú heo may mắn, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
 - Nhấn phím `4` để giả lập TikTok, thêm 5 bom.
 - Nhấn phím `5` để giả lập 200 tim.
-- Nhấn phím `6` để giả lập 20 tim.
+- Nhấn phím `6` để giả lập comment `111`, thêm 1 đom đóm.
 - Nhấn phím `7` để giả lập follow, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
 - Nhấn phím `8` để giả lập quà Trái tim đội, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
 

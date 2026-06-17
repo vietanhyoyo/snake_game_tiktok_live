@@ -383,7 +383,8 @@ function tick() {
 
   snake.unshift(newHead);
   if (ateApple) {
-    createFloatingText(newHead, '+', '#22ff88');
+    const displayedSnakeLength = appleCanGrowSnake ? snake.length : snake.length - 1;
+    createFloatingText(newHead, String(displayedSnakeLength), '#22ff88');
     playSoundEffect('apple');
     apples.splice(appleIndex, 1);
     score += 10;
@@ -2578,12 +2579,15 @@ function showGiftNotification(data) {
   const appleCount = Number(data.appleCount ?? effect.appleCount) || 0;
   const bombCount = Number(data.bombCount ?? effect.bombCount) || 0;
   const colorFlowerCount = Number(data.colorFlowerCount) || 1;
+  const fireflyCount = Number(data.fireflyCount) || 0;
   const giftImage = getGiftImage(data, effect);
   const displayName = data.displayName || effect.displayName || data.giftName || 'Gift';
   const resultLabel = effect.action === 'color'
     ? `<span class="gift-action">+${colorFlowerCount} color flower</span>`
     : effect.action === 'bomb'
       ? `<span class="gift-action gift-action--danger">+${bombCount || 1} 💣</span>`
+    : fireflyCount > 0
+      ? `<span class="gift-action">+${fireflyCount} firefly</span>`
     : `<span class="apple-count">+${appleCount} 🍎</span>`;
 
   // Xóa card cũ ngay để chỉ hiện 1 card
@@ -2631,7 +2635,9 @@ function applyGiftEffect(data) {
   }
 
   totalGifts += repeatCount;
-  showGiftNotification({ ...data, appleCount, bombCount, colorFlowerCount, displayName: effect.displayName });
+  if (!data.silent) {
+    showGiftNotification({ ...data, appleCount, bombCount, colorFlowerCount, displayName: effect.displayName });
+  }
   updateUI();
 }
 
@@ -2643,26 +2649,33 @@ function applyLikeReward(data) {
   appleQueue += appleCount;
   const fireflyCount = Math.max(1, Math.floor(appleCount / LIKE_REWARD_APPLES_PER_FIREFLY));
   for (let i = 0; i < fireflyCount; i++) spawnFirefly();
-  showGiftNotification({
-    ...data,
-    giftName: 'Tap tim',
-    displayName: `${data.threshold || 500} hearts`,
-    appleCount
-  });
+  if (!data.silent) {
+    showGiftNotification({
+      ...data,
+      giftName: 'Tap tim',
+      displayName: `${data.threshold || 500} hearts`,
+      appleCount
+    });
+  }
   updateUI();
 }
 
 function applyCommentReward(data) {
   const appleCount = Number(data.appleCount) || 0;
-  if (appleCount <= 0) return;
+  const fireflyCount = Number(data.fireflyCount) || 0;
+  if (appleCount <= 0 && fireflyCount <= 0) return;
 
-  appleQueue += appleCount;
-  showGiftNotification({
-    ...data,
-    giftName: 'Comment',
-    displayName: 'Comment',
-    appleCount
-  });
+  if (appleCount > 0) appleQueue += appleCount;
+  for (let i = 0; i < fireflyCount; i++) spawnFirefly();
+  if (!data.silent) {
+    showGiftNotification({
+      ...data,
+      giftName: 'Comment',
+      displayName: fireflyCount > 0 ? 'Comment 111' : 'Comment',
+      appleCount,
+      fireflyCount
+    });
+  }
   updateUI();
 }
 
@@ -2735,7 +2748,8 @@ async function sendTestGift(giftType) {
       giftName: gift.giftName,
       count: 1,
       appleCount: gift.appleCount,
-      bombCount: gift.bombCount || 0
+      bombCount: gift.bombCount || 0,
+      silent: true
     })
   });
 }
@@ -2744,15 +2758,15 @@ async function sendTestLike(likeCount) {
   await fetch('/test-like', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ likeCount })
+    body: JSON.stringify({ likeCount, silent: true })
   });
 }
 
-async function sendTestChat() {
+async function sendTestChat(comment = '222') {
   await fetch('/test-chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ comment: '222' })
+    body: JSON.stringify({ comment, silent: true })
   });
 }
 
@@ -2793,13 +2807,13 @@ document.addEventListener('keydown', async (e) => {
   } else if (e.key === '5') {
     await sendTestLike(200);
   } else if (e.key === '6') {
-    await sendTestLike(20);
+    await sendTestChat('111');
   } else if (e.key === '7') {
     await sendTestFollow();
   } else if (e.key === '8') {
     await sendTestGift('doubleHeart');
   } else if (e.key === '9') {
-    await sendTestChat();
+    await sendTestChat('222');
   } else if (e.key === '0') {
     await sendTestMember();
   }

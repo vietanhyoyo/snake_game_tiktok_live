@@ -10,6 +10,8 @@ const LIKE_APPLE_THRESHOLD = 500;
 const LIKE_APPLE_REWARD = 10;
 const COMMENT_APPLE_REWARD = 2;
 const COMMENT_REWARD_TEXT = '222';
+const COMMENT_FIREFLY_TEXT = '111';
+const COMMENT_FIREFLY_REWARD = 1;
 
 app.use(express.static('public'));
 app.use(express.json());
@@ -97,6 +99,10 @@ function isRewardComment(comment) {
   return String(comment || '').trim() === COMMENT_REWARD_TEXT;
 }
 
+function isFireflyComment(comment) {
+  return String(comment || '').trim() === COMMENT_FIREFLY_TEXT;
+}
+
 function attachTikTokListeners(connection) {
   connection.on('gift', (data) => {
     // Only process finalized streak gifts. Non-streak gifts may not send repeatEnd.
@@ -150,13 +156,16 @@ function attachTikTokListeners(connection) {
   });
 
   connection.on('chat', (data) => {
-    if (!isRewardComment(data.comment)) return;
+    const appleCount = isRewardComment(data.comment) ? COMMENT_APPLE_REWARD : 0;
+    const fireflyCount = isFireflyComment(data.comment) ? COMMENT_FIREFLY_REWARD : 0;
+    if (appleCount <= 0 && fireflyCount <= 0) return;
 
     io.emit('tiktok:chat', {
       uniqueId: data.uniqueId,
       nickname: data.nickname,
       comment: data.comment,
-      appleCount: COMMENT_APPLE_REWARD,
+      appleCount,
+      fireflyCount,
       timestamp: Date.now()
     });
   });
@@ -274,6 +283,7 @@ app.post('/test-gift', (req, res) => {
     repeatCount,
     appleCount,
     bombCount,
+    silent: Boolean(req.body?.silent),
     timestamp: Date.now()
   };
   io.emit('tiktok:gift', gift);
@@ -291,6 +301,7 @@ app.post('/test-like', (req, res) => {
     uniqueId: 'test_viewer',
     nickname: 'Test Viewer',
     likeCount: totalLikeCount,
+    silent: Boolean(req.body?.silent),
     timestamp: Date.now()
   };
   const reward = {
@@ -299,6 +310,7 @@ app.post('/test-like', (req, res) => {
     likeCount: totalLikeCount,
     appleCount: Math.max(0, newMilestones) * LIKE_APPLE_REWARD,
     threshold: LIKE_APPLE_THRESHOLD,
+    silent: Boolean(req.body?.silent),
     timestamp: Date.now()
   };
 
@@ -320,9 +332,11 @@ app.post('/test-chat', (req, res) => {
     nickname: 'Test Viewer',
     comment,
     appleCount: isRewardComment(comment) ? COMMENT_APPLE_REWARD : 0,
+    fireflyCount: isFireflyComment(comment) ? COMMENT_FIREFLY_REWARD : 0,
+    silent: Boolean(req.body?.silent),
     timestamp: Date.now()
   };
-  if (chat.appleCount > 0) io.emit('tiktok:chat', chat);
+  if (chat.appleCount > 0 || chat.fireflyCount > 0) io.emit('tiktok:chat', chat);
   res.json({ ok: true, chat });
 });
 

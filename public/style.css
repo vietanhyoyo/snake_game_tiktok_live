@@ -608,7 +608,7 @@ button:disabled {
   text-transform: none;
 }
 
-#heart-reward-guide {
+.heart-reward-guide {
   display: flex;
   align-items: center;
   justify-content: center;
