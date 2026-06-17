@@ -34,6 +34,22 @@ body {
   width: 100%;
 }
 
+#app.screen-shake {
+  animation: screen-shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+@keyframes screen-shake {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  10% { transform: translate3d(-3px, 2px, 0) rotate(-0.22deg); }
+  20% { transform: translate3d(3px, -2px, 0) rotate(0.22deg); }
+  30% { transform: translate3d(-4px, 2px, 0) rotate(-0.2deg); }
+  40% { transform: translate3d(3px, -2px, 0) rotate(0.2deg); }
+  55% { transform: translate3d(-2px, 1px, 0) rotate(-0.12deg); }
+  70% { transform: translate3d(2px, -1px, 0) rotate(0.1deg); }
+  85% { transform: translate3d(-1px, 1px, 0) rotate(-0.06deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+}
+
 /* ─── Control Panel ─── */
 #control-panel {
   display: flex;
@@ -48,7 +64,6 @@ body {
 #streamroom-panel {
   position: relative;
   width: 100%;
-  overflow: hidden;
 }
 
 #streamroom-panel img {

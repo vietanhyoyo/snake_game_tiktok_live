@@ -9,7 +9,8 @@ const MAX_BOMBS = 50;
 const MAX_COLOR_FLOWERS = MAX_APPLES;
 const MAX_FIREFLIES = 12;
 const MIN_SNAKE_LENGTH = 3;
-const EXPLOSION_MS = 520;
+const EXPLOSION_MS = 760;
+const SCREEN_SHAKE_MS = 420;
 const FIREFLY_FLASH_MS = 680;
 const FLOATING_TEXT_MS = 620;
 const GIFT_NOTIFICATION_MS = 1800;
@@ -108,6 +109,7 @@ let memberGreetingHideTimer = null;
 let likeStickerTimer = null;
 let likeStickerHideTimer = null;
 let likeStickerImageIndex = 0;
+let screenShakeTimer = null;
 let score = 0;
 let totalGifts = 0;
 let totalHearts = 0;
@@ -362,6 +364,7 @@ function tick() {
     createFloatingText(newHead, '-', '#ff3b4f');
     playSoundEffect('bomb');
     createExplosion(bombs[bombIndex]);
+    startScreenShake();
     bombs.splice(bombIndex, 1);
     snake.pop();
     if (snake.length > MIN_SNAKE_LENGTH) snake.pop();
@@ -1227,19 +1230,19 @@ function createExplosion(cell) {
 
   const x = cell.x * CELL_SIZE + CELL_SIZE / 2;
   const y = cell.y * CELL_SIZE + CELL_SIZE / 2;
-  const colors = ['#ff3344', '#ff8a00', '#ffd84d', '#ffffff'];
+  const colors = ['#ff2233', '#ff6a00', '#ffd84d', '#ffffff', '#ffb347'];
   const particles = [];
-  const particleCount = 26;
+  const particleCount = 46;
 
   for (let i = 0; i < particleCount; i++) {
-    const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.35;
-    const speed = 1.2 + Math.random() * 3.6;
+    const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.48;
+    const speed = 2.2 + Math.random() * 5.4;
     particles.push({
       x,
       y,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
-      size: 1.8 + Math.random() * 2.8,
+      size: 2.6 + Math.random() * 4.2,
       color: colors[Math.floor(Math.random() * colors.length)]
     });
   }
@@ -1250,6 +1253,20 @@ function createExplosion(cell) {
     startTime: Date.now(),
     particles
   });
+}
+
+function startScreenShake() {
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  clearTimeout(screenShakeTimer);
+  app.classList.remove('screen-shake');
+  void app.offsetWidth;
+  app.classList.add('screen-shake');
+
+  screenShakeTimer = setTimeout(() => {
+    app.classList.remove('screen-shake');
+  }, SCREEN_SHAKE_MS);
 }
 
 function createFloatingText(cell, text, color) {
@@ -1768,27 +1785,53 @@ function drawExplosions() {
     const age = now - explosion.startTime;
     const t = Math.min(age / EXPLOSION_MS, 1);
     const alpha = 1 - t;
-    const shockwaveRadius = CELL_SIZE * (0.45 + 2.2 * t);
+    const shockwaveRadius = CELL_SIZE * (0.8 + 4.4 * t);
+    const innerRadius = CELL_SIZE * (1.15 - t * 0.48);
+    const outerGlowRadius = CELL_SIZE * (1.1 + 3.2 * t);
 
     ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    const glow = ctx.createRadialGradient(
+      explosion.x,
+      explosion.y,
+      0,
+      explosion.x,
+      explosion.y,
+      outerGlowRadius
+    );
+    glow.addColorStop(0, `rgba(255, 245, 190, ${0.92 * alpha})`);
+    glow.addColorStop(0.32, `rgba(255, 120, 30, ${0.5 * alpha})`);
+    glow.addColorStop(1, 'rgba(255, 40, 30, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(explosion.x, explosion.y, outerGlowRadius, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.globalAlpha = alpha;
     ctx.fillStyle = '#fff4a8';
     ctx.beginPath();
-    ctx.arc(explosion.x, explosion.y, CELL_SIZE * 0.65 * (1 - t * 0.45), 0, Math.PI * 2);
+    ctx.arc(explosion.x, explosion.y, innerRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = `rgba(255, 115, 40, ${alpha})`;
-    ctx.lineWidth = Math.max(1, 4 * alpha);
+    ctx.strokeStyle = `rgba(255, 225, 120, ${0.9 * alpha})`;
+    ctx.lineWidth = Math.max(2, CELL_SIZE * 0.25 * alpha);
     ctx.beginPath();
     ctx.arc(explosion.x, explosion.y, shockwaveRadius, 0, Math.PI * 2);
     ctx.stroke();
 
+    ctx.strokeStyle = `rgba(255, 70, 60, ${0.62 * alpha})`;
+    ctx.lineWidth = Math.max(1, CELL_SIZE * 0.12 * alpha);
+    ctx.beginPath();
+    ctx.arc(explosion.x, explosion.y, shockwaveRadius * 0.62, 0, Math.PI * 2);
+    ctx.stroke();
+
     explosion.particles.forEach(particle => {
-      const px = particle.x + particle.vx * age * 0.045;
-      const py = particle.y + particle.vy * age * 0.045 + t * t * CELL_SIZE * 0.35;
+      const px = particle.x + particle.vx * age * 0.06;
+      const py = particle.y + particle.vy * age * 0.06 + t * t * CELL_SIZE * 0.55;
       ctx.fillStyle = particle.color;
       ctx.beginPath();
-      ctx.arc(px, py, particle.size * alpha, 0, Math.PI * 2);
+      ctx.arc(px, py, particle.size * (0.25 + alpha), 0, Math.PI * 2);
       ctx.fill();
     });
 
