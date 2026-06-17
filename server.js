@@ -161,6 +161,14 @@ function attachTikTokListeners(connection) {
     });
   });
 
+  connection.on('member', (data) => {
+    io.emit('tiktok:member', {
+      uniqueId: data.uniqueId,
+      nickname: data.nickname,
+      timestamp: Date.now()
+    });
+  });
+
   connection.on('follow', (data) => {
     io.emit('tiktok:follow', {
       uniqueId: data.uniqueId,
@@ -316,6 +324,17 @@ app.post('/test-chat', (req, res) => {
   };
   if (chat.appleCount > 0) io.emit('tiktok:chat', chat);
   res.json({ ok: true, chat });
+});
+
+// Dev endpoint: simulate a viewer joining without a real livestream
+app.post('/test-member', (req, res) => {
+  const member = {
+    uniqueId: 'test_viewer',
+    nickname: 'Test Viewer',
+    timestamp: Date.now()
+  };
+  io.emit('tiktok:member', member);
+  res.json({ ok: true, member });
 });
 
 // Dev endpoint: simulate a TikTok follow without a real livestream

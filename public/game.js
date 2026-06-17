@@ -13,6 +13,14 @@ const EXPLOSION_MS = 520;
 const FIREFLY_FLASH_MS = 680;
 const FLOATING_TEXT_MS = 620;
 const GIFT_NOTIFICATION_MS = 1800;
+const MEMBER_GREETING_MS = 2800;
+const MEMBER_GREETING_FADE_MS = 300;
+const LIKE_STICKER_MS = 1200;
+const LIKE_STICKER_FADE_MS = 220;
+const LIKE_STICKER_IMAGES = [
+  '/assets/images/stickers/giphy.webp',
+  '/assets/images/stickers/giphy_1.webp'
+];
 const LIKE_REWARD_APPLES_PER_FIREFLY = 10;
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const HAMILTONIAN_MOVE_UNTIL_LENGTH = 80;
@@ -93,6 +101,13 @@ let explosions = [];
 let fireflyFlashes = [];
 let floatingTexts = [];
 let appleQueue = 0;
+let memberGreetingQueue = [];
+let memberGreetingActive = false;
+let memberGreetingTimer = null;
+let memberGreetingHideTimer = null;
+let likeStickerTimer = null;
+let likeStickerHideTimer = null;
+let likeStickerImageIndex = 0;
 let score = 0;
 let totalGifts = 0;
 let totalHearts = 0;
@@ -1881,6 +1896,8 @@ function updateUI() {
 }
 
 function setUIState(state, info = '') {
+  const controlPanel = document.getElementById('control-panel');
+  const streamroomPanel = document.getElementById('streamroom-panel');
   const dot  = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
   const connectForm = document.getElementById('connect-form');
@@ -1888,6 +1905,12 @@ function setUIState(state, info = '') {
   const disconnectBtn = document.getElementById('disconnect-btn');
   const input = document.getElementById('username-input');
 
+  controlPanel.hidden = false;
+  streamroomPanel.hidden = true;
+  if (state !== 'connected') {
+    resetMemberGreeting();
+    resetLikeSticker();
+  }
   dot.className = 'dot';
 
   switch (state) {
@@ -1905,6 +1928,8 @@ function setUIState(state, info = '') {
     case 'connected':
       dot.classList.add('dot-green');
       text.textContent = `${String(info).replace(/^@/, '')}`;
+      controlPanel.hidden = true;
+      streamroomPanel.hidden = false;
       connectForm.hidden = true;
       input.hidden = true;
       connectBtn.hidden = true;
@@ -1935,6 +1960,106 @@ function setUIState(state, info = '') {
       disconnectBtn.disabled = true;
       input.disabled = false;
   }
+}
+
+// ─── Member Greeting Sticker ─────────────────────────────────────────────────
+function resetMemberGreeting() {
+  clearTimeout(memberGreetingTimer);
+  clearTimeout(memberGreetingHideTimer);
+  memberGreetingQueue = [];
+  memberGreetingActive = false;
+
+  const greeting = document.getElementById('member-greeting');
+  if (!greeting) return;
+  greeting.hidden = true;
+  const text = greeting.querySelector('.member-greeting-text');
+  if (text) text.textContent = 'Hello!';
+  greeting.classList.remove('member-greeting--visible', 'member-greeting--hiding');
+}
+
+function showMemberGreeting(data = {}) {
+  memberGreetingQueue.push(data);
+  if (!memberGreetingActive) playNextMemberGreeting();
+}
+
+function playNextMemberGreeting() {
+  const greeting = document.getElementById('member-greeting');
+  const streamroomPanel = document.getElementById('streamroom-panel');
+  if (!greeting || !streamroomPanel || streamroomPanel.hidden) {
+    resetMemberGreeting();
+    return;
+  }
+
+  const nextGreeting = memberGreetingQueue.shift();
+  if (!nextGreeting) {
+    memberGreetingActive = false;
+    return;
+  }
+
+  memberGreetingActive = true;
+  clearTimeout(memberGreetingTimer);
+  clearTimeout(memberGreetingHideTimer);
+
+  const sticker = greeting.querySelector('img');
+  if (sticker) sticker.src = sticker.src;
+  const text = greeting.querySelector('.member-greeting-text');
+  const displayName = String(nextGreeting.nickname || nextGreeting.uniqueId || 'Viewer').replace(/^@/, '');
+  if (text) text.textContent = `Hello! ${displayName}`;
+
+  greeting.hidden = false;
+  greeting.classList.remove('member-greeting--hiding');
+  requestAnimationFrame(() => greeting.classList.add('member-greeting--visible'));
+
+  memberGreetingTimer = setTimeout(() => {
+    greeting.classList.remove('member-greeting--visible');
+    greeting.classList.add('member-greeting--hiding');
+
+    memberGreetingHideTimer = setTimeout(() => {
+      greeting.hidden = true;
+      greeting.classList.remove('member-greeting--hiding');
+      playNextMemberGreeting();
+    }, MEMBER_GREETING_FADE_MS);
+  }, MEMBER_GREETING_MS);
+}
+
+// ─── Like Sticker ────────────────────────────────────────────────────────────
+function resetLikeSticker() {
+  clearTimeout(likeStickerTimer);
+  clearTimeout(likeStickerHideTimer);
+
+  const sticker = document.getElementById('like-sticker');
+  if (!sticker) return;
+  sticker.hidden = true;
+  sticker.classList.remove('like-sticker--visible', 'like-sticker--hiding');
+}
+
+function showLikeSticker() {
+  const sticker = document.getElementById('like-sticker');
+  const streamroomPanel = document.getElementById('streamroom-panel');
+  if (!sticker || !streamroomPanel || streamroomPanel.hidden) return;
+
+  clearTimeout(likeStickerTimer);
+  clearTimeout(likeStickerHideTimer);
+
+  const image = sticker.querySelector('img');
+  if (image) {
+    image.src = LIKE_STICKER_IMAGES[likeStickerImageIndex];
+    likeStickerImageIndex = (likeStickerImageIndex + 1) % LIKE_STICKER_IMAGES.length;
+  }
+
+  sticker.hidden = false;
+  sticker.classList.remove('like-sticker--visible', 'like-sticker--hiding');
+  requestAnimationFrame(() => sticker.classList.add('like-sticker--visible'));
+
+  likeStickerTimer = setTimeout(() => {
+    sticker.classList.remove('like-sticker--visible');
+    sticker.classList.add('like-sticker--hiding');
+
+    likeStickerHideTimer = setTimeout(() => {
+      sticker.hidden = true;
+      sticker.classList.remove('like-sticker--hiding');
+    }, LIKE_STICKER_FADE_MS);
+  }, LIKE_STICKER_MS);
 }
 
 // ─── Gift Notifications ───────────────────────────────────────────────────────
@@ -2210,6 +2335,10 @@ async function sendTestChat() {
   });
 }
 
+async function sendTestMember() {
+  await fetch('/test-member', { method: 'POST' });
+}
+
 async function sendTestFollow() {
   await fetch('/test-follow', { method: 'POST' });
 }
@@ -2250,6 +2379,8 @@ document.addEventListener('keydown', async (e) => {
     await sendTestGift('doubleHeart');
   } else if (e.key === '9') {
     await sendTestChat();
+  } else if (e.key === '0') {
+    await sendTestMember();
   }
 });
 
@@ -2282,6 +2413,7 @@ socket.on('tiktok:gift', (data) => {
 });
 
 socket.on('tiktok:like', (data) => {
+  showLikeSticker();
   updateHeartCount(data);
 });
 
@@ -2291,6 +2423,10 @@ socket.on('tiktok:likeReward', (data) => {
 
 socket.on('tiktok:chat', (data) => {
   applyCommentReward(data);
+});
+
+socket.on('tiktok:member', (data) => {
+  showMemberGreeting(data);
 });
 
 socket.on('tiktok:follow', (data) => {

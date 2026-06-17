@@ -45,6 +45,96 @@ body {
   padding: 10px 14px;
 }
 
+#streamroom-panel {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+#streamroom-panel img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+#member-greeting {
+  pointer-events: none;
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  z-index: 5;
+  width: clamp(150px, 42%, 220px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transform: translate(-50%, -12%) scale(0.88);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+#member-greeting img {
+  width: clamp(92px, 70%, 150px);
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.4));
+}
+
+.member-greeting-text {
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(10, 10, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+}
+
+#member-greeting.member-greeting--visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+#member-greeting.member-greeting--hiding {
+  opacity: 0;
+  transform: translate(-50%, -12%) scale(0.88);
+}
+
+#like-sticker {
+  pointer-events: none;
+  position: absolute;
+  top: 100px;
+  right: 16px;
+  z-index: 6;
+  width: clamp(58px, 17%, 96px);
+  opacity: 0;
+  transform: translateY(-8px) scale(0.8) rotate(7deg);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+#like-sticker img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 7px 12px rgba(0, 0, 0, 0.42));
+}
+
+#like-sticker.like-sticker--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1) rotate(0deg);
+}
+
+#like-sticker.like-sticker--hiding {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.8) rotate(7deg);
+}
+
 #brand {
   font-size: 1rem;
   font-weight: 700;
