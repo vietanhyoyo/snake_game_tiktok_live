@@ -49,6 +49,7 @@ Trong browser:
 - Nhấn phím `6` để giả lập comment `111`, thêm 1 đom đóm.
 - Nhấn phím `7` để giả lập follow, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
 - Nhấn phím `8` để giả lập quà Trái tim đội, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
+- Nhấn phím `y` để bật/tắt Single Apple Maze Mode/Maze Cycle khi debug thuật toán.
 
 Hoặc dùng REST API:
 

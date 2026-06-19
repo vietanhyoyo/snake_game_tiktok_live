@@ -147,15 +147,21 @@ hasSafeSingleApplePath()
 - `snake.length > SERPENTINE_PREP_LENGTH`.
 - Trên map có đúng `1` quả táo.
 
-Điểm quan trọng: `snake.length` phải lớn hơn `SERPENTINE_PREP_LENGTH`, không phải lớn hơn hoặc bằng. Trong 10 giây đó, mỗi tick AI check lại `hasSafeSingleApplePath()`. Mode chỉ bật nếu hàm này chứng minh hiện tại có đường A* tới quả táo duy nhất và đường đó qua được `isPathSafe()`. Nếu quả táo đổi hoặc số apple không còn đúng `1`, cửa sổ kiểm tra reset.
+Điểm quan trọng: `snake.length` phải lớn hơn `SERPENTINE_PREP_LENGTH`, không phải lớn hơn hoặc bằng. Trong 10 giây đó, mỗi tick AI check lại `hasSafeSingleApplePath()`. Mode chỉ bật nếu hàm này chứng minh hiện tại có đường A* tới quả táo duy nhất và đường đó qua được `isPathSafe()`. Khi check này bật Maze thành công, game gọi `enterSingleAppleMazeMode()` và trả về hướng Maze ngay trong tick đó, nên AI không rơi tiếp xuống auto/Serpentine. Nếu quả táo đổi hoặc số apple không còn đúng `1` trước khi Maze bật, cửa sổ kiểm tra reset.
 
 ### Cấu Trúc Maze Cycle
 
-Maze cycle không dùng serpentine quét ngang và cũng không dùng Hilbert curve. Game hiện có 3 kiểu corridor trong `MAZE_VARIANTS`; mỗi kiểu dùng seed, điểm bắt đầu DFS và trọng số hướng khác nhau:
+Maze cycle không dùng serpentine quét ngang và cũng không dùng Hilbert curve. Game hiện có 9 kiểu corridor trong `MAZE_VARIANTS`; mỗi kiểu dùng seed, điểm bắt đầu DFS và trọng số hướng khác nhau:
 
 - `long-corridor`: ưu tiên giữ hướng và đi dọc nhiều hơn, tạo hành lang dài.
 - `wide-corridor`: ưu tiên ngang nhiều hơn, tạo cảm giác maze trải rộng.
 - `broken-corridor`: giảm ưu tiên giữ hướng, tạo nhiều đoạn gãy và ngã rẽ ngắn.
+- `north-snake`: xuất phát gần góc trên, ưu tiên hành lang dọc dài.
+- `east-snake`: xuất phát phía phải, ưu tiên hành lang ngang dài.
+- `center-weave`: xuất phát giữa map, cân bằng ngang/dọc để tạo đường đan.
+- `corner-weave`: xuất phát góc, nhiều đoạn rẽ dọc ngắn.
+- `zigzag-garden`: ưu tiên ngang mạnh hơn để tạo zigzag rộng.
+- `loose-pocket`: cân bằng hơn, tạo các túi hành lang thoáng.
 
 Các hàm sinh maze:
 
@@ -166,9 +172,9 @@ Các hàm sinh maze:
 - `createMazeCycleCells(variant)`: xuất ra danh sách 256 ô theo thứ tự cycle cho một variant.
 - `createMazeLayout(variant)`: prebuild `cells` và `indexByCell` để AI lookup nhanh khi chạy.
 
-Kết quả là `MAZE_LAYOUTS`: 3 đường đi khác nhau, mỗi đường phủ đủ `GRID_SIZE * GRID_SIZE` ô. Mỗi ô xuất hiện đúng một lần, và ô kế tiếp luôn là hàng xóm liền kề. Vì vậy rắn có thể đi theo cycle đang active đến cuối game mà không tự nhốt mình, miễn là thứ tự đầu/đuôi trên cycle còn an toàn.
+Kết quả là `MAZE_LAYOUTS`: 9 đường đi khác nhau, mỗi đường phủ đủ `GRID_SIZE * GRID_SIZE` ô. Mỗi ô xuất hiện đúng một lần, và ô kế tiếp luôn là hàng xóm liền kề. Vì vậy rắn có thể đi theo cycle đang active đến cuối game mà không tự nhốt mình, miễn là thứ tự đầu/đuôi trên cycle còn an toàn.
 
-Mỗi game gọi `selectRandomMazeVariant()` trong `initGame()` hoặc `restartGame()`. Nếu có nhiều hơn một layout, hàm này tránh chọn lại đúng layout vừa dùng ở ván trước để chuyển động đỡ nhàm chán.
+Mỗi game gọi `selectRandomMazeVariant()` trong `initGame()` hoặc `restartGame()`. Nếu có nhiều hơn một layout, hàm này tránh chọn lại đúng layout vừa dùng ở ván trước để chuyển động đỡ nhàm chán. Khi Maze thật sự được bật, `enterSingleAppleMazeMode()` gọi `selectSafeMazeVariant()` để chấm điểm 9 layout bằng trạng thái thân rắn hiện tại và chọn layout có bước transition/cycle an toàn nhất.
 
 Các helper chính:
 
@@ -176,6 +182,8 @@ Các helper chính:
 - `getCellByMazeIndex(index)`: đổi thứ tự maze về ô.
 - `getActiveMazeLayout()`: lấy layout corridor đang được áp dụng cho ván hiện tại.
 - `getMazeDirection()`: bước kế tiếp trên maze cycle.
+- `getMazeLayoutSafetyScore(layoutIndex)`: thử một layout và chấm điểm độ an toàn của nước chuyển tiếp hiện tại.
+- `selectSafeMazeVariant()`: chọn layout có điểm an toàn tốt nhất trước khi vào Maze.
 - `isSnakeAlignedToMaze()`: kiểm tra thân rắn đã nằm đúng thứ tự maze chưa.
 - `getMazeMoveCandidates()`: lấy các nước đi hợp lệ theo maze.
 - `getMazeShortcutDirection()`: shortcut an toàn theo maze.
@@ -192,7 +200,11 @@ Khi `useSingleAppleMazeMode` đã bật, AI gọi `getSingleAppleMazeDirection()
 5. Nếu không có shortcut, đi tiếp bằng `getMazeDirection()`.
 6. Nếu nước maze kế tiếp bị chặn, fallback sang `getSurvivalDirection()`.
 
-`getMazeTransitionDirection()` vẫn mô phỏng từng nước bằng `simulateMove()` và chỉ nhận candidate qua `isSimulatedMoveSafe()`. Scoring ưu tiên hướng maze, đường tới táo nếu an toàn, và ô ít bị body pressure để thân rắn dễ xếp lại thành hành lang.
+`getMazeTransitionDirection()` vẫn mô phỏng từng nước bằng `simulateMove()`. Candidate strict qua `isSimulatedMoveSafe()` luôn được ưu tiên; khi rắn đã dài, candidate loose qua `isLoosePrepMoveSafe()` vẫn được phép nhưng bị phạt điểm để chỉ dùng khi strict không khả thi. Scoring ưu tiên hướng maze, đường tới táo nếu an toàn, và ô ít bị body pressure để thân rắn dễ xếp lại thành hành lang.
+
+Debug shortcut:
+
+- Nhấn phím `y` trong browser để bật/tắt `useSingleAppleMazeMode`. Khi bật, shortcut này tắt Hamiltonian/Serpentine flags hiện tại và dùng Maze Cycle đang được chọn cho ván đó. Khi Maze đang bật, `getAIDirection()` ưu tiên Maze ngay từ đầu nên AI không tự chuyển sang Hamiltonian, Serpentine hoặc auto flow; khi nhấn `y` để tắt, AI quay lại luồng quyết định tự động ở tick kế tiếp.
 
 ## 3. Serpentine Win Mode
 
@@ -218,7 +230,13 @@ const SINGLE_APPLE_MAZE_CHECK_MS = 10000;
 const MAZE_VARIANTS = [
   'long-corridor',
   'wide-corridor',
-  'broken-corridor'
+  'broken-corridor',
+  'north-snake',
+  'east-snake',
+  'center-weave',
+  'corner-weave',
+  'zigzag-garden',
+  'loose-pocket'
 ];
 ```
 
@@ -657,7 +675,7 @@ Chỉ số chung nên xem:
 ```text
 Khi initGame() hoặc restartGame()
   -> selectRandomMazeVariant()
-     -> chọn 1 trong 3 corridor layout
+     -> chọn 1 trong 9 corridor layout
      -> tránh lặp layout vừa dùng nếu có thể
 
 Nếu useHamiltonianMode đã bật và snake.length >= HAMILTONIAN_HARD_LOCK_LENGTH
@@ -676,7 +694,10 @@ snake.length > SERPENTINE_PREP_LENGTH, và apples.length === 1
      -> mở hoặc duy trì cửa sổ kiểm tra 10 giây cho apple hiện tại
 
 Nếu isSingleAppleMazeCheckActive() và hasSafeSingleApplePath()
-  -> bật useSingleAppleMazeMode
+  -> enterSingleAppleMazeMode()
+     -> selectSafeMazeVariant()
+     -> chọn layout an toàn nhất trong MAZE_LAYOUTS
+     -> bật useSingleAppleMazeMode
 
 Nếu useSingleAppleMazeMode đã bật
   -> Single Apple Maze mode

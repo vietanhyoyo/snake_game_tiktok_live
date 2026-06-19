@@ -62,6 +62,54 @@ const MAZE_VARIANTS = [
     straightWeight: 1.35,
     verticalWeight: 1.65,
     horizontalWeight: 1.45
+  },
+  {
+    name: 'north-snake',
+    seed: 0x19a7cafe,
+    start: { x: 1, y: 1 },
+    straightWeight: 5.2,
+    verticalWeight: 2.8,
+    horizontalWeight: 0.85
+  },
+  {
+    name: 'east-snake',
+    seed: 0x8ee7babe,
+    start: { x: 6, y: 1 },
+    straightWeight: 4.8,
+    verticalWeight: 0.9,
+    horizontalWeight: 2.9
+  },
+  {
+    name: 'center-weave',
+    seed: 0x1234fedc,
+    start: { x: 4, y: 4 },
+    straightWeight: 2.1,
+    verticalWeight: 2.0,
+    horizontalWeight: 2.0
+  },
+  {
+    name: 'corner-weave',
+    seed: 0x77aa55cc,
+    start: { x: 7, y: 0 },
+    straightWeight: 1.15,
+    verticalWeight: 2.4,
+    horizontalWeight: 1.2
+  },
+  {
+    name: 'zigzag-garden',
+    seed: 0x0ddc0ffe,
+    start: { x: 0, y: 6 },
+    straightWeight: 1.75,
+    verticalWeight: 1.15,
+    horizontalWeight: 2.6
+  },
+  {
+    name: 'loose-pocket',
+    seed: 0x6ac1e5af,
+    start: { x: 5, y: 6 },
+    straightWeight: 2.7,
+    verticalWeight: 1.75,
+    horizontalWeight: 1.75
   }
 ];
 const COLOR_THEMES = [
@@ -854,6 +902,57 @@ function selectRandomMazeVariant() {
   activeMazeVariantIndex = nextIndex;
 }
 
+function getMazeLayoutSafetyScore(layoutIndex) {
+  const previousIndex = activeMazeVariantIndex;
+  activeMazeVariantIndex = layoutIndex;
+  let score = Infinity;
+
+  if (isSnakeAlignedToMaze()) {
+    const shortcut = getMazeMoveCandidates()[0];
+    if (shortcut) score = Math.min(score, shortcut.score - 500);
+
+    const cycleDir = getMazeDirection();
+    const simulation = simulateMove(cycleDir);
+    const strictSafe = isSimulatedMoveSafe(simulation);
+    const looseSafe = snake.length >= SERPENTINE_PREP_LENGTH && isLoosePrepMoveSafe(simulation);
+    if (strictSafe || looseSafe) {
+      score = Math.min(score, getNearestAppleDistance(simulation.next) + (strictSafe ? 0 : 700));
+    }
+  } else {
+    const candidate = getBestMazeTransitionCandidate();
+    if (candidate) score = candidate.score;
+  }
+
+  activeMazeVariantIndex = previousIndex;
+  return score;
+}
+
+function selectSafeMazeVariant() {
+  if (MAZE_LAYOUTS.length <= 1) {
+    activeMazeVariantIndex = 0;
+    return;
+  }
+
+  const previousIndex = activeMazeVariantIndex;
+  let bestIndex = previousIndex >= 0 ? previousIndex : 0;
+  let bestScore = Infinity;
+
+  for (let index = 0; index < MAZE_LAYOUTS.length; index++) {
+    const repeatPenalty = index === previousIndex ? 0.5 : 0;
+    const score = getMazeLayoutSafetyScore(index) + repeatPenalty;
+    if (score < bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  }
+
+  if (Number.isFinite(bestScore)) {
+    activeMazeVariantIndex = bestIndex;
+  } else if (previousIndex < 0) {
+    selectRandomMazeVariant();
+  }
+}
+
 function getMazeIndex(cell) {
   return getActiveMazeLayout().indexByCell.get(cellKey(cell)) ?? 0;
 }
@@ -1355,7 +1454,7 @@ function getSerpentineWinDirection() {
   return getSurvivalDirection(head, snake, snakeDirection);
 }
 
-function getMazeTransitionDirection() {
+function getBestMazeTransitionCandidate() {
   const preferred = getMazeDirection();
   const dirs = [
     { x: 1, y: 0 }, { x: -1, y: 0 },
@@ -1367,7 +1466,9 @@ function getMazeTransitionDirection() {
 
   for (const dir of dirs) {
     const simulation = simulateMove(dir);
-    if (!isSimulatedMoveSafe(simulation)) continue;
+    const strictSafe = isSimulatedMoveSafe(simulation);
+    const looseSafe = snake.length >= SERPENTINE_PREP_LENGTH && isLoosePrepMoveSafe(simulation);
+    if (!strictSafe && !looseSafe) continue;
 
     const advance = cycleDistance(headIndex, getMazeIndex(simulation.next));
     if (advance === 0) continue;
@@ -1382,13 +1483,18 @@ function getMazeTransitionDirection() {
       appleBonus +
       advance * 0.9 +
       appleDistance * 0.5 +
+      (strictSafe ? 0 : 700) +
       bodyAdjacency * SERPENTINE_BODY_ADJACENCY_WEIGHT +
       bodyPressure * SERPENTINE_BODY_PRESSURE_WEIGHT;
 
-    if (!best || score < best.score) best = { dir, score };
+    if (!best || score < best.score) best = { dir, score, strictSafe };
   }
 
-  return best?.dir ?? getSurvivalDirection(snake[0], snake, snakeDirection);
+  return best;
+}
+
+function getMazeTransitionDirection() {
+  return getBestMazeTransitionCandidate()?.dir ?? getSurvivalDirection(snake[0], snake, snakeDirection);
 }
 
 function hasSafeSingleApplePath() {
@@ -1400,9 +1506,10 @@ function hasSafeSingleApplePath() {
 }
 
 function isSingleAppleMazeCheckActive() {
+  if (useSingleAppleMazeMode) return true;
+
   const appleKey = apples.length === 1 ? cellKey(apples[0]) : null;
   const canTrack =
-    !useSingleAppleMazeMode &&
     !useHamiltonianMode &&
     snake.length > SERPENTINE_PREP_LENGTH &&
     appleKey;
@@ -1420,6 +1527,17 @@ function isSingleAppleMazeCheckActive() {
   }
 
   return now <= singleAppleMazeCheckUntil;
+}
+
+function enterSingleAppleMazeMode() {
+  selectSafeMazeVariant();
+  useHamiltonianMode = false;
+  lockHamiltonianMode = false;
+  useSerpentineWinMode = false;
+  useSingleAppleMazeMode = true;
+  serpentineLooseGapCooldown = 0;
+  singleAppleMazeCheckUntil = 0;
+  singleAppleMazeCheckAppleKey = null;
 }
 
 function getSingleAppleSafePathDirection() {
@@ -1459,6 +1577,18 @@ function getSingleAppleMazeDirection() {
   if (!isBodyCollision(cycleHead)) return cycleDir;
 
   return getSurvivalDirection(head, snake, snakeDirection);
+}
+
+function toggleSingleAppleMazeMode() {
+  if (!useSingleAppleMazeMode) {
+    enterSingleAppleMazeMode();
+  } else {
+    useSingleAppleMazeMode = false;
+    serpentineLooseGapCooldown = 0;
+    singleAppleMazeCheckUntil = 0;
+    singleAppleMazeCheckAppleKey = null;
+  }
+  render();
 }
 
 // ─── Apple Spawning ───────────────────────────────────────────────────────────
@@ -1796,6 +1926,9 @@ function getSurvivalDirection(head, snakeBody, currentDir) {
 
 function getAIDirection() {
   const head = snake[0];
+
+  if (useSingleAppleMazeMode) return getSingleAppleMazeDirection();
+
   const canEnterHamiltonian = snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH;
   const canUseDenseHamiltonian = canEnterHamiltonian && isDenseAppleWinMode();
 
@@ -1815,12 +1948,9 @@ function getAIDirection() {
     isSingleAppleMazeCheckActive() &&
     hasSafeSingleApplePath()
   ) {
-    useSingleAppleMazeMode = true;
-    singleAppleMazeCheckUntil = 0;
-    singleAppleMazeCheckAppleKey = null;
+    enterSingleAppleMazeMode();
+    return getSingleAppleMazeDirection();
   }
-
-  if (useSingleAppleMazeMode) return getSingleAppleMazeDirection();
 
   if (!useSerpentineWinMode && !useHamiltonianMode && snake.length >= SERPENTINE_WIN_LENGTH) {
     useSerpentineWinMode = true;
@@ -2794,6 +2924,8 @@ document.addEventListener('keydown', async (e) => {
     render();
   } else if (key === 'e' && !isTyping) {
     playNextThemeTrack();
+  } else if (key === 'y' && !isTyping) {
+    toggleSingleAppleMazeMode();
   } else if (key === 'r' && !isTyping) {
     await disconnectTikTok();
   } else if (e.key === '1') {
