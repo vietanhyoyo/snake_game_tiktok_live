@@ -1,6 +1,6 @@
 # TikTok Live Snake Game
 
-Game rắn săn mồi chạy trên browser, kết nối TikTok Live qua Node.js. Mỗi gift từ viewer tạo thêm táo trên sân; rắn được điều khiển hoàn toàn bởi AI.
+Game rắn săn mồi chạy trên browser, kết nối TikTok Live qua Node.js. Mỗi gift từ viewer tạo thêm táo hoặc bom qua queue trên sân; rắn được điều khiển hoàn toàn bởi AI.
 Gift TikTok tạo bom; rắn ăn bom sẽ bị trừ 1 độ dài, nhưng không bao giờ nhỏ hơn 3.
 
 ## Yêu Cầu
@@ -46,7 +46,7 @@ Trong browser:
 - Nhấn phím `3` để giả lập Chú heo may mắn, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
 - Nhấn phím `4` để giả lập TikTok, thêm 5 bom.
 - Nhấn phím `5` để giả lập 200 tim.
-- Nhấn phím `6` để giả lập comment `111`, thêm 1 đom đóm.
+- Nhấn phím `6` để giả lập comment `111`, thêm 1 đom đóm; rắn ăn đom đóm thì giảm 1 độ dài.
 - Nhấn phím `7` để giả lập follow, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
 - Nhấn phím `8` để giả lập quà Trái tim đội, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
 - Nhấn phím `y` để bật/tắt Single Apple Maze Mode/Maze Cycle khi debug thuật toán.
@@ -128,7 +128,9 @@ snake_game_tiktok_live/
 | TikTok tap tim -> táo | Mỗi 500 tim tạo 10 táo. |
 | TikTok follow -> hoa đổi màu | Mỗi follow thêm hoa 5 màu; rắn ăn hoa thì đổi màu. |
 | Gift đổi màu -> hoa đổi màu | Gift đổi màu thêm hoa theo `repeatCount`; rắn ăn hoa thì đổi màu. |
+| Comment `111` -> đom đóm | Comment tạo đom đóm; rắn ăn đom đóm thì giảm 1 độ dài, tối thiểu 3. |
 | Apple queue | Gift nhiều táo được đưa vào queue và spawn dần theo tick. |
+| Bomb queue | Gift nhiều bom được đưa vào queue và spawn dần theo tick, giống táo. |
 | TikTok gift -> bom | Gift TikTok tạo 5 bom; rắn ăn bom bị giảm 1 độ dài, tối thiểu 3. |
 | AI nhiều phase | Short mode, Hilbert mode, Serpentine playful, Serpentine strict. |
 | Xuyên tường | Rắn wrap qua biên lưới thay vì chết khi chạm tường. |

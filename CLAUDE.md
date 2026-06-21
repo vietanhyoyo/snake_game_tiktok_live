@@ -92,7 +92,7 @@ const SERPENTINE_BODY_PRESSURE_WEIGHT = 6;
 - `BASE_TICK_MS`: tốc độ game loop, thấp hơn là nhanh hơn.
 - `MAX_APPLES`: giới hạn số táo trên sân, hiện là 40% diện tích lưới.
 - `MAX_BOMBS`: giới hạn số bom trên sân.
-- `MIN_SNAKE_LENGTH`: chiều dài tối thiểu khi ăn bom.
+- `MIN_SNAKE_LENGTH`: chiều dài tối thiểu khi ăn bom hoặc đom đóm.
 - `EXPLOSION_MS`: thời gian hiệu ứng nổ bom (ms).
 - `APPLE_CHASE_LENGTH`: từ độ dài này, AI bắt đầu tìm đường A* bám táo giữa game.
 - `SERPENTINE_PREP_LENGTH`: bắt đầu xếp thân theo serpentine từ đây.
@@ -133,6 +133,7 @@ apples                    // táo đang có trên sân, có spawnTime để anim
 bombs                     // bom đang có trên sân, có spawnTime để animate
 explosions                // hiệu ứng nổ đang chạy
 appleQueue                // táo chờ spawn từ gift events
+bombQueue                 // bom chờ spawn từ gift events
 score                     // +10 mỗi táo ăn
 totalGifts                // tổng repeatCount đã nhận
 winCount                  // số ván thắng
@@ -219,8 +220,10 @@ Client nhận `tiktok:gift` và gọi `applyGiftEffect(data)`:
 
 ```js
 if (effect.action === 'color') spawnColorFlower();
-else if (effect.action === 'bomb') spawnBomb() × bombCount;
-else if (appleCount > 0) appleQueue += appleCount;
+else {
+  if (effect.action === 'bomb' || bombCount > 0) bombQueue += bombCount;
+  if (appleCount > 0) appleQueue += appleCount;
+}
 
 totalGifts += repeatCount;
 ```
@@ -231,6 +234,12 @@ totalGifts += repeatCount;
 - Bom không gây chết. Chỉ cắt ngắn rắn.
 - Hiệu ứng nổ chạy `EXPLOSION_MS = 520ms`, render particle trong `drawExplosions()`.
 - `spawnItem()` dùng chung cho táo và bom, tránh đặt trùng vị trí.
+
+## Firefly Mechanics
+
+- Khi rắn đi vào ô có đom đóm: xóa đom đóm, tạo flash, và giảm 1 độ dài.
+- Đom đóm không làm rắn ngắn dưới `MIN_SNAKE_LENGTH = 3`.
+- AI mô phỏng đom đóm bằng target `shrink: 1` để path safety dùng đúng độ dài sau khi ăn.
 
 ## AI Hiện Tại
 

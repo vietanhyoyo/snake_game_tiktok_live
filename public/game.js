@@ -5,10 +5,11 @@ const CELL_SIZE = CANVAS_SIZE / GRID_SIZE;
 const BASE_TICK_MS = 60;
 const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% diện tích lưới
 const DENSE_APPLE_WIN_THRESHOLD = 30;
-const MAX_BOMBS = 50;
+const MAX_BOMBS = 70;
 const MAX_COLOR_FLOWERS = MAX_APPLES;
 const MAX_FIREFLIES = 12;
 const MIN_SNAKE_LENGTH = 3;
+const FIREFLY_SHRINK_SEGMENTS = 1;
 const EXPLOSION_MS = 760;
 const SCREEN_SHAKE_MS = 420;
 const FIREFLY_FLASH_MS = 680;
@@ -177,6 +178,7 @@ let explosions = [];
 let fireflyFlashes = [];
 let floatingTexts = [];
 let appleQueue = 0;
+let bombQueue = 0;
 let memberGreetingQueue = [];
 let memberGreetingActive = false;
 let memberGreetingTimer = null;
@@ -230,7 +232,8 @@ const fireworksCtx = createSharpCanvasContext(fireworksCanvas);
 
 // ─── Sound Effects ────────────────────────────────────────────────────────────
 const SOUND_EFFECTS = {
-  apple: new Audio('/assets/music/effects/notification-bell-digital-ding-bosnow-1-00-01.mp3'),
+  apple: new Audio('/assets/music/effects/tunetank.com_bite-chomp.wav'),
+  notification: new Audio('/assets/music/effects/notification-bell-digital-ding-bosnow-1-00-01.mp3'),
   bomb: new Audio('/assets/music/effects/stomp-close-box-bosnow-1-00-01.mp3'),
   result: new Audio('/assets/music/effects/wingame.mp3')
 };
@@ -251,12 +254,14 @@ Object.values(SOUND_EFFECTS).forEach(sound => {
 });
 SOUND_EFFECTS.apple.volume = 0.30;
 
-function playSoundEffect(type) {
+function playSoundEffect(type, volume = null) {
   const source = SOUND_EFFECTS[type];
   if (!source) return;
 
   const sound = source.cloneNode();
-  sound.volume = source.volume;
+  sound.volume = volume === null
+    ? source.volume
+    : Math.max(0, Math.min(1, volume));
   sound.play().catch(() => {
     // Browsers can block audio until the first user interaction.
   });
@@ -366,6 +371,7 @@ function initGame() {
   fireflyFlashes = [];
   floatingTexts = [];
   appleQueue = 0;
+  bombQueue = 0;
   score = 0;
   useHamiltonianMode = false;
   lockHamiltonianMode = false;
@@ -389,6 +395,15 @@ function tick() {
   while (appleQueue > 0 && apples.length < MAX_APPLES) {
     if (spawnApple()) {
       appleQueue--;
+    } else {
+      break; // grid full
+    }
+  }
+
+  // Drain bomb queue up to the cap
+  while (bombQueue > 0 && bombs.length < MAX_BOMBS) {
+    if (spawnBomb()) {
+      bombQueue--;
     } else {
       break; // grid full
     }
@@ -451,20 +466,20 @@ function tick() {
     startScreenShake();
     bombs.splice(bombIndex, 1);
     snake.pop();
-    if (snake.length > MIN_SNAKE_LENGTH) snake.pop();
+    shrinkSnakeBody(snake);
   } else if (ateColorFlower) {
     colorFlowers.splice(flowerIndex, 1);
     cycleColorTheme(false);
     createFloatingText(newHead, 'COLOR', currentTheme.primary);
-    playSoundEffect('apple');
+    playSoundEffect('notification');
     snake.pop();
   } else if (ateFirefly) {
     const firefly = fireflies[fireflyIndex];
     fireflies.splice(fireflyIndex, 1);
     createFireflyFlash(firefly);
-    createFloatingText(newHead, 'FLASH', '#fff7a8');
-    playSoundEffect('apple');
+    playSoundEffect('notification', 1);
     snake.pop();
+    shrinkSnakeBody(snake, FIREFLY_SHRINK_SEGMENTS);
   } else {
     snake.pop();
   }
@@ -667,6 +682,12 @@ function getNeighbors(cell) {
 function isBodyCollision(cell, snakeBody = snake, includeTail = false) {
   const body = includeTail ? snakeBody : snakeBody.slice(0, -1);
   return body.some(seg => sameCell(seg, cell));
+}
+
+function shrinkSnakeBody(snakeBody, amount = 1) {
+  for (let i = 0; i < amount && snakeBody.length > MIN_SNAKE_LENGTH; i++) {
+    snakeBody.pop();
+  }
 }
 
 function rotateHilbertQuadrant(size, cell, rx, ry) {
@@ -1059,7 +1080,7 @@ function getEdibleTargets() {
   return [
     ...apples.map(apple => ({ ...apple, type: 'apple', grows: true })),
     ...colorFlowers.map(flower => ({ ...flower, type: 'colorFlower', grows: false })),
-    ...fireflies.map(firefly => ({ ...getFireflyCell(firefly), type: 'firefly', grows: false }))
+    ...fireflies.map(firefly => ({ ...getFireflyCell(firefly), type: 'firefly', grows: false, shrink: FIREFLY_SHRINK_SEGMENTS }))
   ];
 }
 
@@ -1196,6 +1217,7 @@ function getShortModeAppleDirection(candidates = null) {
 function isShortPathSafe(path, snakeBody, targetApple) {
   const targetKey = cellKey(targetApple);
   const targetGrows = targetApple?.grows !== false;
+  const targetShrink = Number(targetApple?.shrink) || 0;
   let simSnake = snakeBody.map(seg => ({ ...seg }));
 
   for (let i = 1; i < path.length; i++) {
@@ -1203,6 +1225,7 @@ function isShortPathSafe(path, snakeBody, targetApple) {
     const eats = cellKey(step) === targetKey;
     simSnake.unshift(step);
     if (!eats || !targetGrows) simSnake.pop();
+    if (eats && targetShrink > 0) shrinkSnakeBody(simSnake, targetShrink);
   }
 
   const obstacles = new Set(simSnake.slice(0, -1).map(cellKey));
@@ -1333,6 +1356,7 @@ function simulateMove(dir) {
   const eats = Boolean(target);
   const simSnake = [next, ...snake.map(seg => ({ ...seg }))];
   if (!target?.grows) simSnake.pop();
+  if (target?.shrink) shrinkSnakeBody(simSnake, target.shrink);
   return { next, simSnake, eats };
 }
 
@@ -1869,6 +1893,7 @@ function floodFill(startCell, obstacles) {
 function isPathSafe(path, snakeBody, targetApple = null) {
   const targetKey = targetApple ? cellKey(targetApple) : null;
   const targetGrows = targetApple?.grows !== false;
+  const targetShrink = Number(targetApple?.shrink) || 0;
   let simSnake = snakeBody.map(s => ({ ...s }));
   let growthPending = 0;
   for (let i = 1; i < path.length; i++) {
@@ -1886,6 +1911,7 @@ function isPathSafe(path, snakeBody, targetApple = null) {
     } else {
       simSnake.pop();
     }
+    if (willEat && targetShrink > 0) shrinkSnakeBody(simSnake, targetShrink);
   }
   const tail = simSnake[simSnake.length - 1];
   const pathToTail = astar(simSnake[0], tail, simSnake);
@@ -2714,7 +2740,7 @@ function showGiftNotification(data) {
   const displayName = data.displayName || effect.displayName || data.giftName || 'Gift';
   const resultLabel = effect.action === 'color'
     ? `<span class="gift-action">+${colorFlowerCount} color flower</span>`
-    : effect.action === 'bomb'
+    : effect.action === 'bomb' || bombCount > 0
       ? `<span class="gift-action gift-action--danger">+${bombCount || 1} 💣</span>`
     : fireflyCount > 0
       ? `<span class="gift-action">+${fireflyCount} firefly</span>`
@@ -2758,10 +2784,13 @@ function applyGiftEffect(data) {
   if (effect.action === 'color') {
     for (let i = 0; i < colorFlowerCount; i++) spawnColorFlower();
     render();
-  } else if (effect.action === 'bomb') {
-    for (let i = 0; i < Math.max(1, bombCount); i++) spawnBomb();
-  } else if (appleCount > 0) {
-    appleQueue += appleCount;
+  } else {
+    if (effect.action === 'bomb' || bombCount > 0) {
+      bombQueue += Math.max(1, bombCount);
+    }
+    if (appleCount > 0) {
+      appleQueue += appleCount;
+    }
   }
 
   totalGifts += repeatCount;

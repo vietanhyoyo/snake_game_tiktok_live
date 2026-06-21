@@ -67,6 +67,8 @@ Luồng xử lý:
 
 Mode này chỉ được bật trong giai đoạn `snake.length <= HAMILTONIAN_MOVE_UNTIL_LENGTH`. Nếu rắn đã vượt ngưỡng này khi `useHamiltonianMode` vẫn false, AI không được vào Hamiltonian nữa và chuyển sang luồng single-apple maze, serpentine hoặc survival tùy điều kiện hiện tại.
 
+Đom đóm vẫn nằm trong danh sách target AI có thể ăn, nhưng được mô phỏng là vật phẩm làm rắn ngắn đi `1` segment sau bước di chuyển, không xuống dưới `MIN_SNAKE_LENGTH`.
+
 ### 2. Hilbert Mode
 
 Sau short mode và trước các win mode đặc biệt, AI dùng Hilbert curve làm cycle an toàn. Nếu về late game chỉ còn một quả táo và có đường ăn an toàn, Single Apple Maze Mode có thể chen vào trước serpentine.
