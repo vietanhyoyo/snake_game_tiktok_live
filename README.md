@@ -43,12 +43,12 @@ Trong browser:
 
 - Nhấn phím `1` để giả lập Hoa hồng, thêm 5 táo.
 - Nhấn phím `2` để giả lập Bắn tim/Finger Heart, thêm 15 táo.
-- Nhấn phím `3` để giả lập Chú heo may mắn, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
+- Nhấn phím `3` để giả lập Chú heo may mắn, thêm ngôi sao màu ngẫu nhiên; rắn ăn sao màu nào thì đổi sang màu đó.
 - Nhấn phím `4` để giả lập TikTok, thêm 5 bom.
 - Nhấn phím `5` để giả lập 200 tim.
 - Nhấn phím `6` để giả lập comment `111`, thêm 1 đom đóm; rắn ăn đom đóm thì giảm 1 độ dài.
-- Nhấn phím `7` để giả lập follow, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
-- Nhấn phím `8` để giả lập quà Trái tim đội, thêm hoa 5 màu; rắn ăn hoa thì đổi màu.
+- Nhấn phím `7` để thêm vật phẩm cầu vồng; rắn ăn vào thì toàn thân chuyển gradient màu cầu vồng.
+- Nhấn phím `8` để thêm vật phẩm nhện; rắn ăn vào thì thân và đầu mờ 10%, mắt vẫn rõ trong 10 giây.
 - Nhấn phím `y` để bật/tắt Single Apple Maze Mode/Maze Cycle khi debug thuật toán.
 
 Hoặc dùng REST API:
@@ -126,8 +126,10 @@ snake_game_tiktok_live/
 |---|---|
 | TikTok gift -> táo | Gift hoàn tất streak sẽ tạo số táo theo `repeatCount`. |
 | TikTok tap tim -> táo | Mỗi 500 tim tạo 10 táo. |
-| TikTok follow -> hoa đổi màu | Mỗi follow thêm hoa 5 màu; rắn ăn hoa thì đổi màu. |
-| Gift đổi màu -> hoa đổi màu | Gift đổi màu thêm hoa theo `repeatCount`; rắn ăn hoa thì đổi màu. |
+| TikTok follow -> sao đổi màu | Mỗi follow thêm ngôi sao màu ngẫu nhiên; rắn ăn sao màu nào thì đổi sang màu đó. |
+| Gift đổi màu -> sao đổi màu | Gift đổi màu thêm ngôi sao màu ngẫu nhiên theo `repeatCount`; rắn ăn sao màu nào thì đổi sang màu đó. |
+| Mốc độ dài -> vật phẩm cầu vồng | Khi rắn đạt 70 và 200 ô sẽ hiện vật phẩm cầu vồng; rắn ăn vào đổi toàn thân sang gradient cầu vồng trong 10 giây. |
+| Vật phẩm nhện -> mờ 10% | Khi rắn đạt 120 ô hoặc nhấn `8` sẽ hiện nhện; rắn ăn vào thì thân và đầu mờ 10%, mắt vẫn rõ trong 10 giây. |
 | Comment `111` -> đom đóm | Comment tạo đom đóm; rắn ăn đom đóm thì giảm 1 độ dài, tối thiểu 3. |
 | Apple queue | Gift nhiều táo được đưa vào queue và spawn dần theo tick. |
 | Bomb queue | Gift nhiều bom được đưa vào queue và spawn dần theo tick, giống táo. |
@@ -180,7 +182,7 @@ length >= SERPENTINE_WIN_LENGTH
 | `GET` | `/status` | Trả về trạng thái kết nối hiện tại. |
 | `POST` | `/test-gift` | Giả lập gift. Body: `{"count": N, "giftName": "...", "giftType": "...", "appleCount": N, "bombCount": N, "giftPictureUrl": "..."}` |
 | `POST` | `/test-like` | Giả lập tap tim. Body: `{"likeCount": N}`. Mỗi 500 tim cộng 10 táo. |
-| `POST` | `/test-follow` | Giả lập follow, tạo hoa đổi màu trên map. |
+| `POST` | `/test-follow` | Giả lập follow, tạo sao đổi màu trên map. |
 
 ## Socket.io Events
 
@@ -195,7 +197,7 @@ Server emit các event sau sang browser:
 | `tiktok:gift` | Gift hoàn tất streak, dùng để cộng táo. |
 | `tiktok:like` | Số tap tim realtime, dùng để hiển thị tổng tim. |
 | `tiktok:likeReward` | Mốc tap tim, dùng để cộng táo. |
-| `tiktok:follow` | Follow mới, dùng để tạo hoa đổi màu trên map. |
+| `tiktok:follow` | Follow mới, dùng để tạo sao đổi màu trên map. |
 
 ## Bảo Mật Và Giới Hạn
 

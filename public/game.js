@@ -7,9 +7,15 @@ const MAX_APPLES = Math.floor(GRID_SIZE * GRID_SIZE * 0.4); // tối đa 40% di�
 const DENSE_APPLE_WIN_THRESHOLD = 30;
 const MAX_BOMBS = 70;
 const MAX_COLOR_FLOWERS = MAX_APPLES;
+const RAINBOW_MILESTONE_LENGTHS = [70, 200];
+const MAX_RAINBOW_ITEMS = RAINBOW_MILESTONE_LENGTHS.length;
+const SPIDER_MILESTONE_LENGTHS = [120];
+const MAX_SPIDER_ITEMS = 1;
 const MAX_FIREFLIES = 12;
 const MIN_SNAKE_LENGTH = 3;
 const FIREFLY_SHRINK_SEGMENTS = 1;
+const RAINBOW_EFFECT_MS = 10000;
+const INVISIBLE_EFFECT_MS = 10000;
 const EXPLOSION_MS = 760;
 const SCREEN_SHAKE_MS = 420;
 const FIREFLY_FLASH_MS = 680;
@@ -123,6 +129,8 @@ const COLOR_THEMES = [
   { primary: '#facc15', strong: '#ca8a04', soft: '#241d05', rgb: [250, 204, 21], tailRgb: [110, 88, 8] },
   { primary: '#a3e635', strong: '#65a30d', soft: '#172306', rgb: [163, 230, 53], tailRgb: [58, 92, 12] }
 ];
+const RAINBOW_COLORS = ['#ff3b4f', '#ff9f1c', '#ffe66d', '#22c55e', '#38bdf8', '#6366f1', '#a855f7', '#ff4fd8'];
+const RAINBOW_ITEM_COLORS = ['#ff3b4f', '#ff9f1c', '#ffe66d', '#22c55e', '#38bdf8', '#a855f7'];
 const TEST_GIFTS = {
   rose: {
     giftType: 'rose',
@@ -173,6 +181,8 @@ let snakeDirection = { x: 1, y: 0 };
 let apples = [];
 let bombs = [];
 let colorFlowers = [];
+let rainbowItems = [];
+let spiderItems = [];
 let fireflies = [];
 let explosions = [];
 let fireflyFlashes = [];
@@ -205,6 +215,10 @@ let singleAppleMazeCheckUntil = 0;
 let singleAppleMazeCheckAppleKey = null;
 let colorThemeIndex = 0;
 let currentTheme = COLOR_THEMES[colorThemeIndex];
+let rainbowSnakeUntil = 0;
+let invisibleSnakeUntil = 0;
+let nextRainbowMilestoneIndex = 0;
+let nextSpiderMilestoneIndex = 0;
 let serpentineLooseGapCooldown = 0;
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
@@ -366,6 +380,8 @@ function initGame() {
   apples = [];
   bombs = [];
   colorFlowers = [];
+  rainbowItems = [];
+  spiderItems = [];
   fireflies = [];
   explosions = [];
   fireflyFlashes = [];
@@ -377,6 +393,10 @@ function initGame() {
   lockHamiltonianMode = false;
   useSerpentineWinMode = false;
   useSingleAppleMazeMode = false;
+  rainbowSnakeUntil = 0;
+  invisibleSnakeUntil = 0;
+  nextRainbowMilestoneIndex = 0;
+  nextSpiderMilestoneIndex = 0;
   serpentineLooseGapCooldown = 0;
   singleAppleMazeCheckUntil = 0;
   singleAppleMazeCheckAppleKey = null;
@@ -441,13 +461,17 @@ function tick() {
   const ateBomb = bombIndex !== -1;
   const flowerIndex = colorFlowers.findIndex(flower => flower.x === newHead.x && flower.y === newHead.y);
   const ateColorFlower = flowerIndex !== -1;
+  const rainbowIndex = rainbowItems.findIndex(item => item.x === newHead.x && item.y === newHead.y);
+  const ateRainbowItem = rainbowIndex !== -1;
+  const spiderIndex = spiderItems.findIndex(item => item.x === newHead.x && item.y === newHead.y);
+  const ateSpiderItem = spiderIndex !== -1;
   const fireflyIndex = fireflies.findIndex(firefly => getFireflyCell(firefly).x === newHead.x && getFireflyCell(firefly).y === newHead.y);
   const ateFirefly = fireflyIndex !== -1;
 
   snake.unshift(newHead);
   if (ateApple) {
     const displayedSnakeLength = appleCanGrowSnake ? snake.length : snake.length - 1;
-    createFloatingText(newHead, String(displayedSnakeLength), '#22ff88');
+    createFloatingText(newHead, String(displayedSnakeLength), '#22ff88', { fontScale: 0.58, shadowBlur: 7, strokeWidth: 3 });
     playSoundEffect('apple');
     apples.splice(appleIndex, 1);
     score += 10;
@@ -468,9 +492,28 @@ function tick() {
     snake.pop();
     shrinkSnakeBody(snake);
   } else if (ateColorFlower) {
+    const colorStar = colorFlowers[flowerIndex];
+    const themeIndex = Number.isInteger(colorStar?.themeIndex)
+      ? colorStar.themeIndex
+      : Math.floor(Math.random() * COLOR_THEMES.length);
     colorFlowers.splice(flowerIndex, 1);
-    cycleColorTheme(false);
+    rainbowSnakeUntil = 0;
+    colorThemeIndex = themeIndex;
+    currentTheme = COLOR_THEMES[colorThemeIndex];
+    applyColorTheme();
     createFloatingText(newHead, 'COLOR', currentTheme.primary);
+    playSoundEffect('notification');
+    snake.pop();
+  } else if (ateRainbowItem) {
+    rainbowItems.splice(rainbowIndex, 1);
+    rainbowSnakeUntil = Date.now() + RAINBOW_EFFECT_MS;
+    createFloatingText(newHead, 'RAINBOW', '#ffffff');
+    playSoundEffect('notification');
+    snake.pop();
+  } else if (ateSpiderItem) {
+    spiderItems.splice(spiderIndex, 1);
+    invisibleSnakeUntil = Date.now() + INVISIBLE_EFFECT_MS;
+    createFloatingText(newHead, 'HIDE', '#c4b5fd');
     playSoundEffect('notification');
     snake.pop();
   } else if (ateFirefly) {
@@ -484,6 +527,8 @@ function tick() {
     snake.pop();
   }
 
+  spawnRainbowMilestoneItems();
+  spawnSpiderMilestoneItems();
   ensureAppleAvailable();
   render();
   updateUI();
@@ -551,10 +596,16 @@ function restartGame() {
   fireflyFlashes = [];
   floatingTexts = [];
   colorFlowers = [];
+  rainbowItems = [];
+  spiderItems = [];
   useHamiltonianMode = false;
   lockHamiltonianMode = false;
   useSerpentineWinMode = false;
   useSingleAppleMazeMode = false;
+  rainbowSnakeUntil = 0;
+  invisibleSnakeUntil = 0;
+  nextRainbowMilestoneIndex = 0;
+  nextSpiderMilestoneIndex = 0;
   serpentineLooseGapCooldown = 0;
   singleAppleMazeCheckUntil = 0;
   singleAppleMazeCheckAppleKey = null;
@@ -1080,6 +1131,8 @@ function getEdibleTargets() {
   return [
     ...apples.map(apple => ({ ...apple, type: 'apple', grows: true })),
     ...colorFlowers.map(flower => ({ ...flower, type: 'colorFlower', grows: false })),
+    ...rainbowItems.map(item => ({ ...item, type: 'rainbow', grows: false })),
+    ...spiderItems.map(item => ({ ...item, type: 'spider', grows: false })),
     ...fireflies.map(firefly => ({ ...getFireflyCell(firefly), type: 'firefly', grows: false, shrink: FIREFLY_SHRINK_SEGMENTS }))
   ];
 }
@@ -1644,6 +1697,8 @@ function ensureFinalAppleAvailable() {
   apples = [{ x: target.x, y: target.y, spawnTime: Date.now() }];
   bombs = bombs.filter(bomb => !sameCell(bomb, target));
   colorFlowers = colorFlowers.filter(flower => !sameCell(flower, target));
+  rainbowItems = rainbowItems.filter(item => !sameCell(item, target));
+  spiderItems = spiderItems.filter(item => !sameCell(item, target));
   fireflies = fireflies.filter(firefly => !sameCell(getFireflyCell(firefly), target));
   return true;
 }
@@ -1653,7 +1708,39 @@ function spawnBomb() {
 }
 
 function spawnColorFlower() {
-  return spawnItem(colorFlowers, MAX_COLOR_FLOWERS);
+  const themeIndex = Math.floor(Math.random() * COLOR_THEMES.length);
+  return spawnItem(colorFlowers, MAX_COLOR_FLOWERS, () => ({
+    themeIndex,
+    color: COLOR_THEMES[themeIndex].primary
+  }));
+}
+
+function spawnRainbowItem() {
+  return spawnItem(rainbowItems, MAX_RAINBOW_ITEMS);
+}
+
+function spawnSpiderItem() {
+  return spawnItem(spiderItems, MAX_SPIDER_ITEMS);
+}
+
+function spawnRainbowMilestoneItems() {
+  while (
+    nextRainbowMilestoneIndex < RAINBOW_MILESTONE_LENGTHS.length &&
+    snake.length >= RAINBOW_MILESTONE_LENGTHS[nextRainbowMilestoneIndex]
+  ) {
+    if (!spawnRainbowItem()) break;
+    nextRainbowMilestoneIndex++;
+  }
+}
+
+function spawnSpiderMilestoneItems() {
+  while (
+    nextSpiderMilestoneIndex < SPIDER_MILESTONE_LENGTHS.length &&
+    snake.length >= SPIDER_MILESTONE_LENGTHS[nextSpiderMilestoneIndex]
+  ) {
+    if (!spawnSpiderItem()) break;
+    nextSpiderMilestoneIndex++;
+  }
 }
 
 function getOccupiedCellKeys() {
@@ -1662,6 +1749,8 @@ function getOccupiedCellKeys() {
     ...apples.map(cellKey),
     ...bombs.map(cellKey),
     ...colorFlowers.map(cellKey),
+    ...rainbowItems.map(cellKey),
+    ...spiderItems.map(cellKey),
     ...fireflies.map(firefly => cellKey(getFireflyCell(firefly)))
   ]);
 }
@@ -1695,7 +1784,7 @@ function spawnFirefly() {
   return true;
 }
 
-function spawnItem(collection, maxItems = Infinity) {
+function spawnItem(collection, maxItems = Infinity, createItemData = () => ({})) {
   if (collection.length >= maxItems) return false;
   const occupied = getOccupiedCellKeys();
   const empty = [];
@@ -1706,7 +1795,7 @@ function spawnItem(collection, maxItems = Infinity) {
   }
   if (empty.length === 0) return false;
   const cell = empty[Math.floor(Math.random() * empty.length)];
-  collection.push({ x: cell.x, y: cell.y, spawnTime: Date.now() });
+  collection.push({ x: cell.x, y: cell.y, spawnTime: Date.now(), ...createItemData() });
   return true;
 }
 
@@ -1791,7 +1880,7 @@ function startScreenShake() {
   }, SCREEN_SHAKE_MS);
 }
 
-function createFloatingText(cell, text, color) {
+function createFloatingText(cell, text, color, options = {}) {
   if (!cell) return;
 
   floatingTexts.push({
@@ -1799,6 +1888,9 @@ function createFloatingText(cell, text, color) {
     y: cell.y * CELL_SIZE + CELL_SIZE / 2,
     text,
     color,
+    fontScale: options.fontScale ?? 0.78,
+    shadowBlur: options.shadowBlur ?? 12,
+    strokeWidth: options.strokeWidth ?? 4,
     startTime: Date.now()
   });
 }
@@ -2154,32 +2246,76 @@ function render() {
     ctx.restore();
   });
 
-  // Color flowers
-  const FLOWER_ANIM_MS = 360;
-  const FLOWER_COLORS = ['#ff4466', '#facc15', '#38bdf8', '#a855f7', '#22c55e'];
+  // Color stars
+  const COLOR_STAR_ANIM_MS = 360;
   colorFlowers.forEach(flower => {
     const px = flower.x * CELL_SIZE + CELL_SIZE / 2;
     const py = flower.y * CELL_SIZE + CELL_SIZE / 2;
     const age = Date.now() - flower.spawnTime;
-    const scale = age < FLOWER_ANIM_MS ? easeOutBack(age / FLOWER_ANIM_MS) : 1;
+    const scale = age < COLOR_STAR_ANIM_MS ? easeOutBack(age / COLOR_STAR_ANIM_MS) : 1;
     const spin = Date.now() / 520;
-    const petalRadius = CELL_SIZE * 0.19;
-    const petalDistance = CELL_SIZE * 0.24;
+    const outerR = CELL_SIZE * 0.39;
+    const innerR = CELL_SIZE * 0.18;
+    const starColor = flower.color || COLOR_THEMES[flower.themeIndex]?.primary || currentTheme.primary;
 
     ctx.save();
     ctx.translate(px, py);
     ctx.rotate(spin);
     ctx.scale(scale, scale);
 
-    ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
-    ctx.shadowBlur = 10;
-    for (let i = 0; i < 5; i++) {
-      const angle = -Math.PI / 2 + (Math.PI * 2 * i) / 5;
+    ctx.shadowColor = starColor;
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = starColor;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const radius = i % 2 === 0 ? outerR : innerR;
+      const angle = -Math.PI / 2 + (Math.PI * i) / 5;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.beginPath();
+    ctx.arc(-CELL_SIZE * 0.08, -CELL_SIZE * 0.1, CELL_SIZE * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  });
+
+  // Rainbow items
+  const RAINBOW_ANIM_MS = 360;
+  rainbowItems.forEach(item => {
+    const px = item.x * CELL_SIZE + CELL_SIZE / 2;
+    const py = item.y * CELL_SIZE + CELL_SIZE / 2;
+    const age = Date.now() - item.spawnTime;
+    const scale = age < RAINBOW_ANIM_MS ? easeOutBack(age / RAINBOW_ANIM_MS) : 1;
+    const rotation = Date.now() / 420;
+    const petalRadius = CELL_SIZE * 0.18;
+    const petalDistance = CELL_SIZE * 0.25;
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(rotation);
+    ctx.scale(scale, scale);
+    ctx.shadowColor = 'rgba(255, 255, 255, 0.28)';
+    ctx.shadowBlur = 4;
+
+    for (let i = 0; i < RAINBOW_ITEM_COLORS.length; i++) {
+      const angle = -Math.PI / 2 + (Math.PI * 2 * i) / RAINBOW_ITEM_COLORS.length;
       const petalX = Math.cos(angle) * petalDistance;
       const petalY = Math.sin(angle) * petalDistance;
-      ctx.fillStyle = FLOWER_COLORS[i];
+      ctx.fillStyle = RAINBOW_ITEM_COLORS[i];
       ctx.beginPath();
-      ctx.ellipse(petalX, petalY, petalRadius * 0.78, petalRadius * 1.18, angle, 0, Math.PI * 2);
+      ctx.ellipse(petalX, petalY, petalRadius * 0.78, petalRadius * 1.24, angle, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -2189,6 +2325,71 @@ function render() {
     ctx.arc(0, 0, CELL_SIZE * 0.14, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
+    ctx.beginPath();
+    ctx.arc(-CELL_SIZE * 0.045, -CELL_SIZE * 0.045, CELL_SIZE * 0.045, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // Spider items
+  const SPIDER_ANIM_MS = 360;
+  spiderItems.forEach(item => {
+    const px = item.x * CELL_SIZE + CELL_SIZE / 2;
+    const py = item.y * CELL_SIZE + CELL_SIZE / 2;
+    const age = Date.now() - item.spawnTime;
+    const scale = age < SPIDER_ANIM_MS ? easeOutBack(age / SPIDER_ANIM_MS) : 1;
+    const bob = Math.sin(Date.now() / 180) * CELL_SIZE * 0.035;
+    const bodyR = CELL_SIZE * 0.22;
+    const headR = CELL_SIZE * 0.13;
+
+    ctx.save();
+    ctx.translate(px, py + bob);
+    ctx.scale(scale, scale);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(196, 181, 253, 0.5)';
+    ctx.shadowBlur = 7;
+
+    ctx.strokeStyle = '#1f1635';
+    ctx.lineWidth = 2.4;
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 4; i++) {
+        const y = -CELL_SIZE * 0.14 + i * CELL_SIZE * 0.09;
+        const kneeX = side * CELL_SIZE * (0.28 + i * 0.025);
+        const footX = side * CELL_SIZE * (0.43 + i * 0.02);
+        const footY = y + (i < 2 ? -CELL_SIZE * 0.06 : CELL_SIZE * 0.06);
+        ctx.beginPath();
+        ctx.moveTo(side * CELL_SIZE * 0.1, y);
+        ctx.lineTo(kneeX, y + (i < 2 ? -CELL_SIZE * 0.035 : CELL_SIZE * 0.035));
+        ctx.lineTo(footX, footY);
+        ctx.stroke();
+      }
+    }
+
+    ctx.fillStyle = '#24153a';
+    ctx.beginPath();
+    ctx.ellipse(0, CELL_SIZE * 0.04, bodyR * 0.9, bodyR * 1.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#342052';
+    ctx.beginPath();
+    ctx.arc(0, -CELL_SIZE * 0.18, headR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#f8fafc';
+    for (const eyeX of [-CELL_SIZE * 0.045, CELL_SIZE * 0.045]) {
+      ctx.beginPath();
+      ctx.arc(eyeX, -CELL_SIZE * 0.2, CELL_SIZE * 0.025, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = 'rgba(196, 181, 253, 0.8)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(0, CELL_SIZE * 0.04, bodyR * 0.55, Math.PI * 0.12, Math.PI * 0.88);
+    ctx.stroke();
     ctx.restore();
   });
 
@@ -2197,8 +2398,17 @@ function render() {
   ctx.lineWidth = snakeWidth;
   ctx.lineCap = 'butt';
   ctx.lineJoin = 'round';
+  const renderTime = Date.now();
+  const rainbowSnakeActive = renderTime < rainbowSnakeUntil;
+  const invisibleSnakeActive = renderTime < invisibleSnakeUntil;
 
   const getSnakeColor = (index) => {
+    if (rainbowSnakeActive) {
+      const hue = (renderTime / 26 + index * 24) % 360;
+      const lightness = index === 0 ? 63 : 54 - (index / Math.max(snake.length - 1, 1)) * 12;
+      return `hsl(${hue}, 100%, ${lightness}%)`;
+    }
+
     const t = index / Math.max(snake.length - 1, 1); // 0=head, 1=tail
     const rgb = currentTheme.rgb.map((channel, channelIndex) => {
       const tailChannel = currentTheme.tailRgb[channelIndex];
@@ -2206,6 +2416,9 @@ function render() {
     });
     return `rgb(${rgb.join(',')})`;
   };
+
+  ctx.save();
+  if (invisibleSnakeActive) ctx.globalAlpha = 0.1;
 
   for (let i = snake.length - 1; i > 0; i--) {
     const seg = snake[i];
@@ -2257,7 +2470,20 @@ function render() {
   }
 
   const head = snake[0];
-  ctx.fillStyle = currentTheme.primary;
+  if (rainbowSnakeActive) {
+    const headGradient = ctx.createLinearGradient(
+      head.x * CELL_SIZE,
+      head.y * CELL_SIZE,
+      (head.x + 1) * CELL_SIZE,
+      (head.y + 1) * CELL_SIZE
+    );
+    RAINBOW_COLORS.forEach((color, index) => {
+      headGradient.addColorStop(index / (RAINBOW_COLORS.length - 1), color);
+    });
+    ctx.fillStyle = headGradient;
+  } else {
+    ctx.fillStyle = currentTheme.primary;
+  }
   ctx.beginPath();
   ctx.roundRect(
     head.x * CELL_SIZE + (CELL_SIZE - snakeWidth) / 2,
@@ -2267,6 +2493,7 @@ function render() {
     6
   );
   ctx.fill();
+  ctx.restore();
 
   // Snake eyes
   drawEyes(snake[0], snakeDirection);
@@ -2428,13 +2655,14 @@ function drawFloatingTexts() {
     ctx.globalAlpha = alpha;
     ctx.translate(item.x, y);
     ctx.scale(scale, scale);
-    ctx.font = `700 ${Math.max(16, Math.floor(CELL_SIZE * 0.78))}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    const fontSize = Math.max(12, Math.floor(CELL_SIZE * (item.fontScale ?? 0.78)));
+    ctx.font = `700 ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.lineWidth = 4;
+    ctx.lineWidth = item.strokeWidth ?? 4;
     ctx.strokeStyle = 'rgba(8, 10, 18, 0.82)';
     ctx.shadowColor = item.color;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = item.shadowBlur ?? 12;
     ctx.strokeText(item.text, 0, 0);
     ctx.fillStyle = item.color;
     ctx.fillText(item.text, 0, 0);
@@ -2739,7 +2967,7 @@ function showGiftNotification(data) {
   const giftImage = getGiftImage(data, effect);
   const displayName = data.displayName || effect.displayName || data.giftName || 'Gift';
   const resultLabel = effect.action === 'color'
-    ? `<span class="gift-action">+${colorFlowerCount} color flower</span>`
+    ? `<span class="gift-action">+${colorFlowerCount} color star</span>`
     : effect.action === 'bomb' || bombCount > 0
       ? `<span class="gift-action gift-action--danger">+${bombCount || 1} 💣</span>`
     : fireflyCount > 0
@@ -2970,9 +3198,11 @@ document.addEventListener('keydown', async (e) => {
   } else if (e.key === '6') {
     await sendTestChat('111');
   } else if (e.key === '7') {
-    await sendTestFollow();
+    spawnRainbowItem();
+    render();
   } else if (e.key === '8') {
-    await sendTestGift('doubleHeart');
+    spawnSpiderItem();
+    render();
   } else if (e.key === '9') {
     await sendTestChat('222');
   } else if (e.key === '0') {
