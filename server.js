@@ -21,6 +21,7 @@ let currentUsername = null;
 let availableGifts = [];
 let totalLikeCount = 0;
 let rewardedLikeMilestones = 0;
+let currentViewerCount = null;
 
 function normalizeGiftName(name = '') {
   return String(name)
@@ -174,8 +175,14 @@ function attachTikTokListeners(connection) {
     io.emit('tiktok:member', {
       uniqueId: data.uniqueId,
       nickname: data.nickname,
+      viewerCount: currentViewerCount,
       timestamp: Date.now()
     });
+  });
+
+  connection.on('roomUser', (data) => {
+    const viewerCount = Number(data.viewerCount);
+    if (Number.isFinite(viewerCount)) currentViewerCount = viewerCount;
   });
 
   connection.on('follow', (data) => {
@@ -192,6 +199,7 @@ function attachTikTokListeners(connection) {
     currentUsername = null;
     totalLikeCount = 0;
     rewardedLikeMilestones = 0;
+    currentViewerCount = null;
     io.emit('tiktok:disconnected', { reason: 'stream_ended' });
   });
 
@@ -207,6 +215,7 @@ function attachTikTokListeners(connection) {
     currentUsername = null;
     totalLikeCount = 0;
     rewardedLikeMilestones = 0;
+    currentViewerCount = null;
   });
 }
 
@@ -224,6 +233,7 @@ app.post('/connect', async (req, res) => {
   }
   totalLikeCount = 0;
   rewardedLikeMilestones = 0;
+  currentViewerCount = null;
 
   try {
     const connection = new WebcastPushConnection(cleanUsername, {
@@ -254,6 +264,7 @@ app.post('/disconnect', (req, res) => {
   availableGifts = [];
   totalLikeCount = 0;
   rewardedLikeMilestones = 0;
+  currentViewerCount = null;
   io.emit('tiktok:disconnected', { reason: 'manual' });
   console.log(`[TikTok] Manually disconnected from @${prev}`);
   res.json({ status: 'disconnected' });
@@ -342,9 +353,13 @@ app.post('/test-chat', (req, res) => {
 
 // Dev endpoint: simulate a viewer joining without a real livestream
 app.post('/test-member', (req, res) => {
+  const viewerCount = Number(req.body?.viewerCount);
+  if (Number.isFinite(viewerCount)) currentViewerCount = viewerCount;
+
   const member = {
     uniqueId: 'test_viewer',
     nickname: 'Test Viewer',
+    viewerCount: currentViewerCount,
     timestamp: Date.now()
   };
   io.emit('tiktok:member', member);

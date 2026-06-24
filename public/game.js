@@ -12,6 +12,9 @@ const MAX_RAINBOW_ITEMS = RAINBOW_MILESTONE_LENGTHS.length;
 const SPIDER_MILESTONE_LENGTHS = [120];
 const MAX_SPIDER_ITEMS = 1;
 const MAX_FIREFLIES = 12;
+const MEMBER_APPLE_REWARD = 1;
+const MEMBER_BOMB_REWARD = 1;
+const MEMBER_FIREFLY_REWARD = 1;
 const MIN_SNAKE_LENGTH = 3;
 const FIREFLY_SHRINK_SEGMENTS = 1;
 const RAINBOW_EFFECT_MS = 10000;
@@ -23,6 +26,7 @@ const FLOATING_TEXT_MS = 620;
 const GIFT_NOTIFICATION_MS = 1800;
 const MEMBER_GREETING_MS = 2800;
 const MEMBER_GREETING_FADE_MS = 300;
+const MEMBER_GREETING_VOICE_VIEWER_LIMIT = 200;
 const LIKE_STICKER_MS = 1200;
 const LIKE_STICKER_FADE_MS = 220;
 const LIKE_STICKER_IMAGES = [
@@ -261,6 +265,23 @@ let themeMusic = null;
 let themeTrackIndex = -1;
 let themeMusicStarted = false;
 let themeMusicMuted = false;
+let preferredGreetingVoice = null;
+const FEMALE_GREETING_VOICE_NAMES = [
+  'samantha',
+  'victoria',
+  'karen',
+  'zira',
+  'hazel',
+  'susan',
+  'moira',
+  'tessa',
+  'veena',
+  'fiona',
+  'google us english',
+  'google uk english female',
+  'microsoft zira',
+  'microsoft hazel'
+];
 
 Object.values(SOUND_EFFECTS).forEach(sound => {
   sound.preload = 'auto';
@@ -350,6 +371,72 @@ function toggleThemeMusic() {
   }
 
   startThemeMusic();
+}
+
+function getSpeechSynthesis() {
+  return 'speechSynthesis' in window ? window.speechSynthesis : null;
+}
+
+function getMemberGreetingVoice() {
+  const speech = getSpeechSynthesis();
+  if (!speech) return null;
+
+  if (preferredGreetingVoice) return preferredGreetingVoice;
+
+  const voices = speech.getVoices();
+  preferredGreetingVoice = voices.find(voice => {
+    const voiceName = voice.name.toLowerCase();
+    return FEMALE_GREETING_VOICE_NAMES.some(name => voiceName.includes(name));
+  }) ||
+    voices.find(voice => voice.lang === 'en-US') ||
+    voices.find(voice => voice.lang?.startsWith('en')) ||
+    voices[0] ||
+    null;
+  return preferredGreetingVoice;
+}
+
+function primeMemberGreetingVoice() {
+  const speech = getSpeechSynthesis();
+  if (!speech) return;
+
+  getMemberGreetingVoice();
+  speech.resume();
+}
+
+function getMemberDisplayName(data = {}) {
+  return String(data.nickname || data.uniqueId || 'Viewer')
+    .replace(/^@/, '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Viewer';
+}
+
+function shouldSpeakMemberGreeting(data = {}) {
+  const viewerCount = Number(data.viewerCount);
+  return !Number.isFinite(viewerCount) || viewerCount <= MEMBER_GREETING_VOICE_VIEWER_LIMIT;
+}
+
+function speakMemberGreeting(displayName) {
+  const speech = getSpeechSynthesis();
+  if (!speech || !('SpeechSynthesisUtterance' in window)) return;
+
+  const utterance = new SpeechSynthesisUtterance(`Hello ${displayName}`);
+  const voice = getMemberGreetingVoice();
+  if (voice) utterance.voice = voice;
+  utterance.lang = voice?.lang || 'en-US';
+  utterance.rate = 0.95;
+  utterance.pitch = 1.1;
+  utterance.volume = 1;
+
+  speech.resume();
+  speech.speak(utterance);
+}
+
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.addEventListener?.('voiceschanged', () => {
+    preferredGreetingVoice = null;
+    getMemberGreetingVoice();
+  });
 }
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
@@ -2774,6 +2861,7 @@ function resetMemberGreeting() {
   clearTimeout(memberGreetingHideTimer);
   memberGreetingQueue = [];
   memberGreetingActive = false;
+  getSpeechSynthesis()?.cancel();
 
   const greeting = document.getElementById('member-greeting');
   if (!greeting) return;
@@ -2809,8 +2897,13 @@ function playNextMemberGreeting() {
   const sticker = greeting.querySelector('img');
   if (sticker) sticker.src = sticker.src;
   const text = greeting.querySelector('.member-greeting-text');
-  const displayName = String(nextGreeting.nickname || nextGreeting.uniqueId || 'Viewer').replace(/^@/, '');
+  const displayName = getMemberDisplayName(nextGreeting);
   if (text) text.textContent = `Hello! ${displayName}`;
+  if (shouldSpeakMemberGreeting(nextGreeting)) {
+    speakMemberGreeting(displayName);
+  } else {
+    getSpeechSynthesis()?.cancel();
+  }
 
   greeting.hidden = false;
   greeting.classList.remove('member-greeting--hiding');
@@ -3084,8 +3177,15 @@ function applyFollowEffect(data) {
   updateUI();
 }
 
+function applyMemberRoomReward() {
+  appleQueue += MEMBER_APPLE_REWARD;
+  bombQueue += MEMBER_BOMB_REWARD;
+  for (let i = 0; i < MEMBER_FIREFLY_REWARD; i++) spawnFirefly();
+}
+
 // ─── Control Buttons ──────────────────────────────────────────────────────────
 document.getElementById('connect-btn').addEventListener('click', async () => {
+  primeMemberGreetingVoice();
   const raw = document.getElementById('username-input').value.trim();
   const username = raw.replace(/^@/, '');
   if (!username) {
@@ -3122,6 +3222,8 @@ document.getElementById('username-input').addEventListener('keydown', e => {
 });
 
 document.addEventListener('pointerdown', startThemeMusic, { once: true });
+document.addEventListener('pointerdown', primeMemberGreetingVoice, { once: true });
+document.addEventListener('keydown', primeMemberGreetingVoice, { once: true });
 
 async function sendTestGift(giftType) {
   const gift = TEST_GIFTS[giftType];
@@ -3155,10 +3257,6 @@ async function sendTestChat(comment = '222') {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ comment, silent: true })
   });
-}
-
-async function sendTestMember() {
-  await fetch('/test-member', { method: 'POST' });
 }
 
 async function sendTestFollow() {
@@ -3205,8 +3303,6 @@ document.addEventListener('keydown', async (e) => {
     render();
   } else if (e.key === '9') {
     await sendTestChat('222');
-  } else if (e.key === '0') {
-    await sendTestMember();
   }
 });
 
@@ -3252,6 +3348,7 @@ socket.on('tiktok:chat', (data) => {
 });
 
 socket.on('tiktok:member', (data) => {
+  applyMemberRoomReward();
   showMemberGreeting(data);
 });
 
