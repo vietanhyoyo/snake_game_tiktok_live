@@ -34,7 +34,7 @@ npm run dev
 3. Nhấn nút plug để kết nối.
 4. Khi viewer tặng quà, game nhận gift và thêm táo vào sân.
 5. Khi livestream đạt mỗi mốc 500 tap tim, game thêm 10 táo.
-6. Khi viewer vào room, game thêm 1 táo, 1 bom, 1 đom đóm, hiện sticker chào và đọc âm thanh `Hello + tên viewer`; nếu phòng đang có trên 200 viewer thì không đọc voice nữa.
+6. Khi viewer vào room, game thêm 1 táo, 1 bom, 1 đom đóm, hiện sticker chào và đọc âm thanh `Hello + tên viewer`; nếu phòng đang có trên 50 viewer thì không đọc voice nữa.
 7. Khi đã kết nối, form kết nối được ẩn; nhấn phím `r` để ngắt kết nối.
 8. Nhấn phím `t` để tắt nhạc nền, nhấn lại `t` để mở nhạc.
 
@@ -50,6 +50,7 @@ Trong browser:
 - Nhấn phím `6` để giả lập comment `111`, thêm 1 đom đóm; rắn ăn đom đóm thì giảm 1 độ dài.
 - Nhấn phím `7` để thêm vật phẩm cầu vồng; rắn ăn vào thì toàn thân chuyển gradient màu cầu vồng.
 - Nhấn phím `8` để thêm vật phẩm nhện; rắn ăn vào thì thân và đầu mờ 10%, mắt vẫn rõ trong 10 giây.
+- Nhấn phím `0` để giả lập Rosa, thêm hoa cầu vồng 6 cánh; rắn ăn vào thì toàn thân chuyển gradient màu cầu vồng.
 - Nhấn phím `y` để bật/tắt Single Apple Maze Mode/Maze Cycle khi debug thuật toán.
 
 Hoặc dùng REST API:
@@ -58,6 +59,10 @@ Hoặc dùng REST API:
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
   -d '{"count": 1, "giftName": "Hoa hồng", "giftType": "rose", "appleCount": 5}'
+
+curl -X POST http://localhost:3000/test-gift \
+  -H "Content-Type: application/json" \
+  -d '{"count": 1, "giftName": "Rosa", "giftType": "rosa", "appleCount": 0}'
 
 curl -X POST http://localhost:3000/test-gift \
   -H "Content-Type: application/json" \
@@ -128,8 +133,9 @@ snake_game_tiktok_live/
 | TikTok gift -> táo | Gift hoàn tất streak sẽ tạo số táo theo `repeatCount`. |
 | TikTok tap tim -> táo | Mỗi 500 tim tạo 10 táo. |
 | TikTok follow -> sao đổi màu | Mỗi follow thêm ngôi sao màu ngẫu nhiên; rắn ăn sao màu nào thì đổi sang màu đó. |
-| TikTok viewer vào room -> táo, bom, đom đóm và chào bằng giọng đọc | Mỗi member event thêm 1 táo, 1 bom, 1 đom đóm, hiện sticker hello và đọc `Hello + tên viewer`; trên 200 viewer thì tắt voice. |
+| TikTok viewer vào room -> táo, bom, đom đóm và chào bằng giọng đọc | Mỗi member event thêm 1 táo, 1 bom, 1 đom đóm, hiện sticker hello và đọc `Hello + tên viewer`; trên 50 viewer thì tắt voice. |
 | Gift đổi màu -> sao đổi màu | Gift đổi màu thêm ngôi sao màu ngẫu nhiên theo `repeatCount`; rắn ăn sao màu nào thì đổi sang màu đó. |
+| Gift Rosa -> hoa cầu vồng | Gift Rosa thêm hoa 6 cánh trên map; rắn ăn vào đổi toàn thân sang gradient cầu vồng trong 10 giây. |
 | Mốc độ dài -> vật phẩm cầu vồng | Khi rắn đạt 70 và 200 ô sẽ hiện vật phẩm cầu vồng; rắn ăn vào đổi toàn thân sang gradient cầu vồng trong 10 giây. |
 | Vật phẩm nhện -> mờ 10% | Khi rắn đạt 120 ô hoặc nhấn `8` sẽ hiện nhện; rắn ăn vào thì thân và đầu mờ 10%, mắt vẫn rõ trong 10 giây. |
 | Comment `111` -> đom đóm | Comment tạo đom đóm; rắn ăn đom đóm thì giảm 1 độ dài, tối thiểu 3. |
@@ -200,7 +206,7 @@ Server emit các event sau sang browser:
 | `tiktok:like` | Số tap tim realtime, dùng để hiển thị tổng tim. |
 | `tiktok:likeReward` | Mốc tap tim, dùng để cộng táo. |
 | `tiktok:follow` | Follow mới, dùng để tạo sao đổi màu trên map. |
-| `tiktok:member` | Viewer vào room, dùng để thêm 1 táo, 1 bom, 1 đom đóm, hiện sticker hello và đọc `Hello + tên viewer`; kèm `viewerCount` để client tắt voice khi phòng trên 200 viewer. |
+| `tiktok:member` | Viewer vào room, dùng để thêm 1 táo, 1 bom, 1 đom đóm, hiện sticker hello và đọc `Hello + tên viewer`; kèm `viewerCount` để client tắt voice khi phòng trên 50 viewer. |
 
 ## Bảo Mật Và Giới Hạn
 

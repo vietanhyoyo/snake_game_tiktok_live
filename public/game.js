@@ -8,7 +8,6 @@ const DENSE_APPLE_WIN_THRESHOLD = 30;
 const MAX_BOMBS = 70;
 const MAX_COLOR_FLOWERS = MAX_APPLES;
 const RAINBOW_MILESTONE_LENGTHS = [70, 200];
-const MAX_RAINBOW_ITEMS = RAINBOW_MILESTONE_LENGTHS.length;
 const SPIDER_MILESTONE_LENGTHS = [120];
 const MAX_SPIDER_ITEMS = 1;
 const MAX_FIREFLIES = 12;
@@ -26,7 +25,7 @@ const FLOATING_TEXT_MS = 620;
 const GIFT_NOTIFICATION_MS = 1800;
 const MEMBER_GREETING_MS = 2800;
 const MEMBER_GREETING_FADE_MS = 300;
-const MEMBER_GREETING_VOICE_VIEWER_LIMIT = 200;
+const MEMBER_GREETING_VOICE_VIEWER_LIMIT = 50;
 const LIKE_STICKER_MS = 1200;
 const LIKE_STICKER_FADE_MS = 220;
 const LIKE_STICKER_IMAGES = [
@@ -136,6 +135,14 @@ const COLOR_THEMES = [
 const RAINBOW_COLORS = ['#ff3b4f', '#ff9f1c', '#ffe66d', '#22c55e', '#38bdf8', '#6366f1', '#a855f7', '#ff4fd8'];
 const RAINBOW_ITEM_COLORS = ['#ff3b4f', '#ff9f1c', '#ffe66d', '#22c55e', '#38bdf8', '#a855f7'];
 const TEST_GIFTS = {
+  rosa: {
+    giftType: 'rosa',
+    giftName: 'Rosa',
+    displayName: 'Rosa',
+    appleCount: 0,
+    action: 'rainbow',
+    image: '/assets/images/gift/rosa.webp'
+  },
   rose: {
     giftType: 'rose',
     giftName: 'Hoa hồng',
@@ -1803,7 +1810,7 @@ function spawnColorFlower() {
 }
 
 function spawnRainbowItem() {
-  return spawnItem(rainbowItems, MAX_RAINBOW_ITEMS);
+  return spawnItem(rainbowItems);
 }
 
 function spawnSpiderItem() {
@@ -2788,6 +2795,22 @@ function updateUI() {
   document.getElementById('heart-count').textContent = totalHearts.toLocaleString();
 }
 
+function setStreamroomVideoPlaying(isPlaying) {
+  const video = document.getElementById('streamroom-video');
+  if (!video) return;
+
+  video.muted = true;
+  video.loop = true;
+  video.controls = false;
+
+  if (isPlaying) {
+    video.play().catch(() => {});
+  } else {
+    video.pause();
+    video.currentTime = 0;
+  }
+}
+
 function setUIState(state, info = '') {
   const controlPanel = document.getElementById('control-panel');
   const streamroomPanel = document.getElementById('streamroom-panel');
@@ -2800,6 +2823,7 @@ function setUIState(state, info = '') {
 
   controlPanel.hidden = false;
   streamroomPanel.hidden = true;
+  setStreamroomVideoPlaying(false);
   if (state !== 'connected') {
     resetMemberGreeting();
     resetLikeSticker();
@@ -2823,6 +2847,7 @@ function setUIState(state, info = '') {
       text.textContent = `${String(info).replace(/^@/, '')}`;
       controlPanel.hidden = true;
       streamroomPanel.hidden = false;
+      setStreamroomVideoPlaying(true);
       connectForm.hidden = true;
       input.hidden = true;
       connectBtn.hidden = true;
@@ -2985,6 +3010,7 @@ function normalizeGiftName(data) {
 
 function getGiftEffect(data) {
   const normalized = normalizeGiftName(data);
+  if (normalized.includes('rosa')) return TEST_GIFTS.rosa;
   if (normalized.includes('rose') || normalized.includes('hoa hong')) return TEST_GIFTS.rose;
   if (
     (normalized.includes('tim') && normalized.includes('doi')) ||
@@ -3013,6 +3039,7 @@ function getGiftImage(data, effect) {
     getFirstGiftImageUrl(data.giftImage) ||
     getFirstGiftImageUrl(data.extendedGiftInfo) ||
     getFirstGiftImageUrl(data.image) ||
+    getFirstGiftImageUrl(effect.image) ||
     '';
 }
 
@@ -3056,10 +3083,13 @@ function showGiftNotification(data) {
   const appleCount = Number(data.appleCount ?? effect.appleCount) || 0;
   const bombCount = Number(data.bombCount ?? effect.bombCount) || 0;
   const colorFlowerCount = Number(data.colorFlowerCount) || 1;
+  const rainbowItemCount = Number(data.rainbowItemCount) || (effect.action === 'rainbow' ? 1 : 0);
   const fireflyCount = Number(data.fireflyCount) || 0;
   const giftImage = getGiftImage(data, effect);
   const displayName = data.displayName || effect.displayName || data.giftName || 'Gift';
-  const resultLabel = effect.action === 'color'
+  const resultLabel = effect.action === 'rainbow'
+    ? `<span class="gift-action">+${rainbowItemCount} rainbow flower</span>`
+    : effect.action === 'color'
     ? `<span class="gift-action">+${colorFlowerCount} color star</span>`
     : effect.action === 'bomb' || bombCount > 0
       ? `<span class="gift-action gift-action--danger">+${bombCount || 1} 💣</span>`
@@ -3101,9 +3131,13 @@ function applyGiftEffect(data) {
     ? (Number(effect.bombCount) || 0) * repeatCount
     : Number(data.bombCount ?? effect.bombCount) || 0;
   const colorFlowerCount = effect.action === 'color' ? repeatCount : 0;
+  const rainbowItemCount = effect.action === 'rainbow' ? repeatCount : 0;
 
   if (effect.action === 'color') {
     for (let i = 0; i < colorFlowerCount; i++) spawnColorFlower();
+    render();
+  } else if (effect.action === 'rainbow') {
+    for (let i = 0; i < rainbowItemCount; i++) spawnRainbowItem();
     render();
   } else {
     if (effect.action === 'bomb' || bombCount > 0) {
@@ -3116,7 +3150,7 @@ function applyGiftEffect(data) {
 
   totalGifts += repeatCount;
   if (!data.silent) {
-    showGiftNotification({ ...data, appleCount, bombCount, colorFlowerCount, displayName: effect.displayName });
+    showGiftNotification({ ...data, appleCount, bombCount, colorFlowerCount, rainbowItemCount, displayName: effect.displayName });
   }
   updateUI();
 }
@@ -3303,6 +3337,8 @@ document.addEventListener('keydown', async (e) => {
     render();
   } else if (e.key === '9') {
     await sendTestChat('222');
+  } else if (e.key === '0') {
+    await sendTestGift('rosa');
   }
 });
 
