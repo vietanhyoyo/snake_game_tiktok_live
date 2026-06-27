@@ -673,12 +673,12 @@ function startResultCountdown(result, seconds) {
     countdownEl.textContent = remaining;
     if (remaining <= 0) {
       clearResultState();
-      restartGame();
+      restartGame({ preserveGiftItems: result === 'loss' });
     }
   }, 1000);
 }
 
-function restartGame() {
+function restartGame({ preserveGiftItems = false } = {}) {
   clearResultState();
   snake = [
     { x: 9, y: 9 },
@@ -689,9 +689,12 @@ function restartGame() {
   explosions = [];
   fireflyFlashes = [];
   floatingTexts = [];
-  colorFlowers = [];
-  rainbowItems = [];
-  spiderItems = [];
+  if (!preserveGiftItems) {
+    colorFlowers = [];
+    rainbowItems = [];
+    spiderItems = [];
+  }
+  relocateGiftItemsAwayFromSnake();
   useHamiltonianMode = false;
   lockHamiltonianMode = false;
   useSerpentineWinMode = false;
@@ -1847,6 +1850,65 @@ function getOccupiedCellKeys() {
     ...spiderItems.map(cellKey),
     ...fireflies.map(firefly => cellKey(getFireflyCell(firefly)))
   ]);
+}
+
+function getOccupiedCellKeysExcept(excludedItem) {
+  const occupied = new Set(snake.map(cellKey));
+  const addGridItems = collection => {
+    collection.forEach(item => {
+      if (item !== excludedItem) occupied.add(cellKey(item));
+    });
+  };
+
+  addGridItems(apples);
+  addGridItems(bombs);
+  addGridItems(colorFlowers);
+  addGridItems(rainbowItems);
+  addGridItems(spiderItems);
+  fireflies.forEach(firefly => {
+    if (firefly !== excludedItem) occupied.add(cellKey(getFireflyCell(firefly)));
+  });
+
+  return occupied;
+}
+
+function getRandomEmptyCell(excludedItem) {
+  const occupied = getOccupiedCellKeysExcept(excludedItem);
+  const empty = [];
+  for (let x = 0; x < GRID_SIZE; x++) {
+    for (let y = 0; y < GRID_SIZE; y++) {
+      if (!occupied.has(`${x},${y}`)) empty.push({ x, y });
+    }
+  }
+  if (empty.length === 0) return null;
+  return empty[Math.floor(Math.random() * empty.length)];
+}
+
+function relocateGridItemsAwayFromSnake(collection) {
+  const snakeCells = new Set(snake.map(cellKey));
+  collection.forEach(item => {
+    if (!snakeCells.has(cellKey(item))) return;
+    const cell = getRandomEmptyCell(item);
+    if (!cell) return;
+    item.x = cell.x;
+    item.y = cell.y;
+  });
+}
+
+function relocateGiftItemsAwayFromSnake() {
+  const snakeCells = new Set(snake.map(cellKey));
+  relocateGridItemsAwayFromSnake(apples);
+  relocateGridItemsAwayFromSnake(bombs);
+  relocateGridItemsAwayFromSnake(colorFlowers);
+  relocateGridItemsAwayFromSnake(rainbowItems);
+  relocateGridItemsAwayFromSnake(spiderItems);
+  fireflies.forEach(firefly => {
+    if (!snakeCells.has(cellKey(getFireflyCell(firefly)))) return;
+    const cell = getRandomEmptyCell(firefly);
+    if (!cell) return;
+    firefly.x = cell.x + 0.5;
+    firefly.y = cell.y + 0.5;
+  });
 }
 
 function isBoardFull() {
