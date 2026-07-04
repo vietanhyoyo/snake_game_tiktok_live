@@ -35,7 +35,8 @@ const LIKE_STICKER_IMAGES = [
 const STREAMROOM_VIDEOS = [
   '/assets/videos/video_streamer.mp4',
   '/assets/videos/video_streamer2.mp4',
-  '/assets/videos/video_streamer3.mp4'
+  '/assets/videos/video_streamer3.mp4',
+  '/assets/videos/video_streamer5.mp4'
 ];
 const LIKE_REWARD_APPLES_PER_FIREFLY = 10;
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
@@ -212,7 +213,7 @@ let memberGreetingHideTimer = null;
 let likeStickerTimer = null;
 let likeStickerHideTimer = null;
 let likeStickerImageIndex = 0;
-let streamroomVideoIndex = 2;
+let streamroomVideoIndex = 3;
 let screenShakeTimer = null;
 let score = 0;
 let totalGifts = 0;
