@@ -430,7 +430,7 @@ button:disabled {
 
 #gift-ui {
   position: relative;
-  width: 160px;
+  width: 180px;
   max-width: 52vw;
   flex-shrink: 0;
 }
@@ -518,8 +518,9 @@ button:disabled {
 /* ─── Gift Guide ─── */
 #gift-guide {
   display: grid;
-  grid-template-columns: 1fr;
-  justify-items: end;
+  grid-template-rows: repeat(4, minmax(34px, auto));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 2px;
   width: 100%;
 }
@@ -528,7 +529,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 2px;
-  width: 130px;
+  width: 100%;
   min-width: 0;
   min-height: 34px;
   background: #13131f;

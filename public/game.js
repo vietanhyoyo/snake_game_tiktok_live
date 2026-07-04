@@ -32,6 +32,11 @@ const LIKE_STICKER_IMAGES = [
   '/assets/images/stickers/giphy.webp',
   '/assets/images/stickers/giphy_1.webp'
 ];
+const STREAMROOM_VIDEOS = [
+  '/assets/videos/video_streamer.mp4',
+  '/assets/videos/video_streamer2.mp4',
+  '/assets/videos/video_streamer3.mp4'
+];
 const LIKE_REWARD_APPLES_PER_FIREFLY = 10;
 const RANDOM_MOVE_UNTIL_LENGTH = 50;
 const HAMILTONIAN_MOVE_UNTIL_LENGTH = 80;
@@ -207,6 +212,7 @@ let memberGreetingHideTimer = null;
 let likeStickerTimer = null;
 let likeStickerHideTimer = null;
 let likeStickerImageIndex = 0;
+let streamroomVideoIndex = 2;
 let screenShakeTimer = null;
 let score = 0;
 let totalGifts = 0;
@@ -262,12 +268,33 @@ const SOUND_EFFECTS = {
   bomb: new Audio('/assets/music/effects/stomp-close-box-bosnow-1-00-01.mp3'),
   result: new Audio('/assets/music/effects/wingame.mp3')
 };
-const THEME_TRACKS = [
-  'Rainbow Run.mp3',
-  'Sunrise Over Moss.mp3',
-  'Tiny Pixel Path.mp3',
-  'Tiny Pixel Path (1).mp3'
-].map(fileName => encodeURI(`/assets/music/themes/${fileName}`));
+const THEME_PLAYLISTS = [
+  {
+    name: 'themes',
+    tracks: [
+      'Rainbow Run.mp3',
+      'Sunrise Over Moss.mp3',
+      'Tiny Pixel Path.mp3',
+      'Tiny Pixel Path (1).mp3'
+    ].map(fileName => encodeURI(`/assets/music/themes/${fileName}`))
+  },
+  {
+    name: 'otherthemes',
+    tracks: [
+      "BABYMONSTER - '춤 (CHOOM)'  Instrumental.mp3",
+      "CORTIS (코르티스) 'REDRED' Instrumental.mp3",
+      'CRAZY (Instrumental).mp3',
+      'G-DRAGON - A BOY (소년이여) (Official Instrumental).mp3',
+      'Hearts2Hearts  RUDE!  Instrumental.mp3',
+      "ILLIT - It's Me  Official Instrumental.mp3",
+      'NOT CUTE ANYMORE (Instrumental).mp3',
+      'NewJeans - New Jeans  Instrumental.mp3',
+      'NewJeans - Super Shy  Instrumental.mp3',
+      'SPAGHETTI (feat. j-hope of BTS) (Instrumental).mp3'
+    ].map(fileName => encodeURI(`/assets/music/otherthemes/${fileName}`))
+  }
+];
+let themePlaylistIndex = 0;
 let themeMusic = null;
 let themeTrackIndex = -1;
 let themeMusicStarted = false;
@@ -309,26 +336,32 @@ function playSoundEffect(type, volume = null) {
   });
 }
 
+function getActiveThemeTracks() {
+  return THEME_PLAYLISTS[themePlaylistIndex]?.tracks || [];
+}
+
 function getRandomThemeTrackIndex() {
-  if (THEME_TRACKS.length <= 1) return 0;
+  const tracks = getActiveThemeTracks();
+  if (tracks.length <= 1) return 0;
 
   let nextIndex = themeTrackIndex;
   while (nextIndex === themeTrackIndex) {
-    nextIndex = Math.floor(Math.random() * THEME_TRACKS.length);
+    nextIndex = Math.floor(Math.random() * tracks.length);
   }
   return nextIndex;
 }
 
 function playThemeTrack(index = getRandomThemeTrackIndex()) {
-  if (THEME_TRACKS.length === 0) return;
+  const tracks = getActiveThemeTracks();
+  if (tracks.length === 0) return;
 
   if (themeMusic) {
     themeMusic.pause();
     themeMusic.removeEventListener('ended', playNextThemeTrack);
   }
 
-  themeTrackIndex = index;
-  themeMusic = new Audio(THEME_TRACKS[themeTrackIndex]);
+  themeTrackIndex = Math.max(0, Math.min(index, tracks.length - 1));
+  themeMusic = new Audio(tracks[themeTrackIndex]);
   themeMusic.preload = 'auto';
   themeMusic.volume = 0.35;
   themeMusic.addEventListener('ended', playNextThemeTrack);
@@ -377,6 +410,19 @@ function toggleThemeMusic() {
     return;
   }
 
+  startThemeMusic();
+}
+
+function toggleThemePlaylist() {
+  if (themeMusic) {
+    themeMusic.pause();
+    themeMusic.removeEventListener('ended', playNextThemeTrack);
+    themeMusic = null;
+  }
+
+  themePlaylistIndex = (themePlaylistIndex + 1) % THEME_PLAYLISTS.length;
+  themeTrackIndex = -1;
+  themeMusicStarted = false;
   startThemeMusic();
 }
 
@@ -2857,6 +2903,23 @@ function updateUI() {
   document.getElementById('heart-count').textContent = totalHearts.toLocaleString();
 }
 
+function switchStreamroomVideo() {
+  const video = document.getElementById('streamroom-video');
+  if (!video || STREAMROOM_VIDEOS.length === 0) return;
+
+  const streamroomPanel = document.getElementById('streamroom-panel');
+  const shouldPlay = streamroomPanel && !streamroomPanel.hidden;
+
+  streamroomVideoIndex = (streamroomVideoIndex + 1) % STREAMROOM_VIDEOS.length;
+  video.src = STREAMROOM_VIDEOS[streamroomVideoIndex];
+  video.currentTime = 0;
+  video.load();
+
+  if (shouldPlay) {
+    setStreamroomVideoPlaying(true);
+  }
+}
+
 function setStreamroomVideoPlaying(isPlaying) {
   const video = document.getElementById('streamroom-video');
   if (!video) return;
@@ -3368,6 +3431,16 @@ document.addEventListener('keydown', async (e) => {
     return;
   }
 
+  if (key === '0' && !isTyping) {
+    toggleThemePlaylist();
+    return;
+  }
+
+  if (key === 'u' && !isTyping) {
+    switchStreamroomVideo();
+    return;
+  }
+
   if (!isTyping) startThemeMusic();
 
   if (key === 'q' && !isTyping) {
@@ -3399,8 +3472,6 @@ document.addEventListener('keydown', async (e) => {
     render();
   } else if (e.key === '9') {
     await sendTestChat('222');
-  } else if (e.key === '0') {
-    await sendTestGift('rosa');
   }
 });
 
