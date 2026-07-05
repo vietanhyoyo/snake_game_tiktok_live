@@ -272,6 +272,7 @@ const SOUND_EFFECTS = {
 const THEME_PLAYLISTS = [
   {
     name: 'themes',
+    type: 'audio',
     tracks: [
       'Rainbow Run.mp3',
       'Sunrise Over Moss.mp3',
@@ -280,19 +281,22 @@ const THEME_PLAYLISTS = [
     ].map(fileName => encodeURI(`/assets/music/themes/${fileName}`))
   },
   {
-    name: 'otherthemes',
+    name: 'youtube',
+    type: 'youtube',
     tracks: [
-      "BABYMONSTER - '춤 (CHOOM)'  Instrumental.mp3",
-      "CORTIS (코르티스) 'REDRED' Instrumental.mp3",
-      'CRAZY (Instrumental).mp3',
-      'G-DRAGON - A BOY (소년이여) (Official Instrumental).mp3',
-      'Hearts2Hearts  RUDE!  Instrumental.mp3',
-      "ILLIT - It's Me  Official Instrumental.mp3",
-      'NOT CUTE ANYMORE (Instrumental).mp3',
-      'NewJeans - New Jeans  Instrumental.mp3',
-      'NewJeans - Super Shy  Instrumental.mp3',
-      'SPAGHETTI (feat. j-hope of BTS) (Instrumental).mp3'
-    ].map(fileName => encodeURI(`/assets/music/otherthemes/${fileName}`))
+      'https://youtu.be/29yCOFRxo9A?si=5OK3P02YYfUqIfGA',
+      'https://youtu.be/oljFUwjeXdI?si=Tfb17tmP5tyD-7EM',
+      'https://youtu.be/Y5F4lqcWOc4?si=N1z27hTSUMuAct6j',
+      'https://youtu.be/oShPzU54haQ?si=1hTOWYHUmxJ4fUNF',
+      'https://youtu.be/fZBCRrFr7Rc?si=vXfy5lopHdhrsToH',
+      'https://youtu.be/r9zoXpRsfB4?si=yQ_WG4u8Nu_8AQar',
+      'https://youtu.be/KXdLFlIh0jw?si=6k3ZWr3X6zVC1C2P',
+      'https://youtu.be/xnytx_PEmks?si=xa1sZwLvLVA-2L9q',
+      'https://youtu.be/zidP-s00lDQ?si=d022mI2XnvV3ANPn',
+      'https://youtu.be/53ac-ar8jg8?si=GcpRHZQrhTf6NzFc',
+      'https://youtu.be/XRxKL182oyw?si=ATmDh3hIUph8nDhQ',
+      'https://youtu.be/xijrYWJTays?si=xjcnAKr2RjQvZeUa',
+    ]
   }
 ];
 let themePlaylistIndex = 0;
@@ -300,6 +304,11 @@ let themeMusic = null;
 let themeTrackIndex = -1;
 let themeMusicStarted = false;
 let themeMusicMuted = false;
+let youtubeApiReadyPromise = null;
+let youtubeThemePlayer = null;
+let youtubeThemePlayerReadyPromise = null;
+let youtubeThemePlayerReady = false;
+let youtubeThemeRequestId = 0;
 let preferredGreetingVoice = null;
 const FEMALE_GREETING_VOICE_NAMES = [
   'samantha',
@@ -337,8 +346,16 @@ function playSoundEffect(type, volume = null) {
   });
 }
 
+function getActiveThemePlaylist() {
+  return THEME_PLAYLISTS[themePlaylistIndex] || null;
+}
+
 function getActiveThemeTracks() {
-  return THEME_PLAYLISTS[themePlaylistIndex]?.tracks || [];
+  return getActiveThemePlaylist()?.tracks || [];
+}
+
+function isActiveThemePlaylistYouTube() {
+  return getActiveThemePlaylist()?.type === 'youtube';
 }
 
 function getRandomThemeTrackIndex() {
@@ -352,16 +369,190 @@ function getRandomThemeTrackIndex() {
   return nextIndex;
 }
 
-function playThemeTrack(index = getRandomThemeTrackIndex()) {
-  const tracks = getActiveThemeTracks();
-  if (tracks.length === 0) return;
+function getYouTubeVideoId(track) {
+  if (!track) return '';
+  if (typeof track === 'object') return track.videoId || '';
+  if (/^[a-zA-Z0-9_-]{11}$/.test(track)) return track;
+
+  try {
+    const url = new URL(track);
+    if (url.hostname.includes('youtu.be')) return url.pathname.replace('/', '');
+    if (url.searchParams.has('v')) return url.searchParams.get('v');
+    if (url.pathname.includes('/embed/')) return url.pathname.split('/embed/')[1]?.split('/')[0] || '';
+    if (url.pathname.includes('/shorts/')) return url.pathname.split('/shorts/')[1]?.split('/')[0] || '';
+  } catch {
+    return '';
+  }
+
+  return '';
+}
+
+function ensureYouTubeThemePlayerElement() {
+  let wrapper = document.getElementById('youtube-theme-player-wrapper');
+  if (wrapper) return 'youtube-theme-player';
+
+  wrapper = document.createElement('div');
+  wrapper.id = 'youtube-theme-player-wrapper';
+  wrapper.setAttribute('aria-hidden', 'true');
+  wrapper.style.cssText = [
+    'position:fixed',
+    'left:-220px',
+    'bottom:0',
+    'width:200px',
+    'height:200px',
+    'opacity:0',
+    'pointer-events:none',
+    'z-index:-1'
+  ].join(';');
+
+  const playerElement = document.createElement('div');
+  playerElement.id = 'youtube-theme-player';
+  wrapper.appendChild(playerElement);
+  document.body.appendChild(wrapper);
+
+  return playerElement.id;
+}
+
+function loadYouTubeIframeApi() {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (youtubeApiReadyPromise) return youtubeApiReadyPromise;
+
+  youtubeApiReadyPromise = new Promise((resolve, reject) => {
+    const previousReady = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (typeof previousReady === 'function') previousReady();
+      resolve(window.YT);
+    };
+
+    if (document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) return;
+
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+
+  return youtubeApiReadyPromise;
+}
+
+function handleYouTubeThemeStateChange(event) {
+  if (!isActiveThemePlaylistYouTube() || !window.YT?.PlayerState) return;
+
+  if (event.data === window.YT.PlayerState.ENDED) {
+    playNextThemeTrack();
+  } else if (event.data === window.YT.PlayerState.PLAYING) {
+    themeMusicStarted = true;
+  } else if (event.data === window.YT.PlayerState.PAUSED) {
+    themeMusicStarted = false;
+  }
+}
+
+function handleYouTubeThemeError() {
+  if (!isActiveThemePlaylistYouTube() || themeMusicMuted) return;
+  playNextThemeTrack();
+}
+
+function getYouTubeThemePlayer() {
+  if (youtubeThemePlayerReady && youtubeThemePlayer) return Promise.resolve(youtubeThemePlayer);
+  if (youtubeThemePlayerReadyPromise) return youtubeThemePlayerReadyPromise;
+
+  youtubeThemePlayerReadyPromise = loadYouTubeIframeApi().then(() => (
+    new Promise(resolve => {
+      const playerElementId = ensureYouTubeThemePlayerElement();
+      youtubeThemePlayer = new window.YT.Player(playerElementId, {
+        width: 200,
+        height: 200,
+        playerVars: {
+          autoplay: 0,
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          rel: 0,
+          origin: window.location.origin
+        },
+        events: {
+          onReady: event => {
+            event.target.setVolume(35);
+            youtubeThemePlayerReady = true;
+            resolve(event.target);
+          },
+          onStateChange: handleYouTubeThemeStateChange,
+          onError: handleYouTubeThemeError
+        }
+      });
+    })
+  ));
+
+  return youtubeThemePlayerReadyPromise;
+}
+
+function preloadYouTubeThemePlayer() {
+  getYouTubeThemePlayer().catch(() => {});
+}
+
+function pauseThemeTrack() {
+  if (themeMusic) themeMusic.pause();
+  if (youtubeThemePlayer?.pauseVideo) youtubeThemePlayer.pauseVideo();
+  themeMusicStarted = false;
+}
+
+function stopThemeTrack() {
+  youtubeThemeRequestId += 1;
 
   if (themeMusic) {
     themeMusic.pause();
     themeMusic.removeEventListener('ended', playNextThemeTrack);
+    themeMusic = null;
   }
 
+  if (youtubeThemePlayer?.stopVideo) youtubeThemePlayer.stopVideo();
+  themeMusicStarted = false;
+}
+
+function playYouTubeThemeTrack(track) {
+  const videoId = getYouTubeVideoId(track);
+  if (!videoId) return;
+
+  const requestId = ++youtubeThemeRequestId;
+  const playWithPlayer = player => {
+    if (
+      requestId !== youtubeThemeRequestId ||
+      !isActiveThemePlaylistYouTube() ||
+      themeMusicMuted
+    ) return;
+
+    player.setVolume(35);
+    player.loadVideoById(videoId);
+    player.playVideo();
+  };
+
+  if (youtubeThemePlayerReady && youtubeThemePlayer) {
+    playWithPlayer(youtubeThemePlayer);
+    return;
+  }
+
+  getYouTubeThemePlayer()
+    .then(playWithPlayer)
+    .catch(() => {
+      themeMusicStarted = false;
+    });
+}
+
+function playThemeTrack(index = getRandomThemeTrackIndex()) {
+  const playlist = getActiveThemePlaylist();
+  const tracks = getActiveThemeTracks();
+  if (tracks.length === 0) return;
+
+  stopThemeTrack();
+
   themeTrackIndex = Math.max(0, Math.min(index, tracks.length - 1));
+  if (playlist?.type === 'youtube') {
+    if (!themeMusicMuted) playYouTubeThemeTrack(tracks[themeTrackIndex]);
+    return;
+  }
+
   themeMusic = new Audio(tracks[themeTrackIndex]);
   themeMusic.preload = 'auto';
   themeMusic.volume = 0.35;
@@ -388,6 +579,22 @@ function playNextThemeTrack() {
 function startThemeMusic() {
   if (themeMusicMuted || themeMusicStarted) return;
 
+  if (isActiveThemePlaylistYouTube()) {
+    if (themeTrackIndex >= 0) {
+      if (youtubeThemePlayerReady && youtubeThemePlayer?.playVideo) {
+        youtubeThemePlayer.playVideo();
+        themeMusicStarted = true;
+        return;
+      }
+
+      playThemeTrack(themeTrackIndex);
+      return;
+    }
+
+    playThemeTrack();
+    return;
+  }
+
   if (themeMusic) {
     themeMusic.play()
       .then(() => {
@@ -406,8 +613,7 @@ function toggleThemeMusic() {
   themeMusicMuted = !themeMusicMuted;
 
   if (themeMusicMuted) {
-    if (themeMusic) themeMusic.pause();
-    themeMusicStarted = false;
+    pauseThemeTrack();
     return;
   }
 
@@ -415,11 +621,7 @@ function toggleThemeMusic() {
 }
 
 function toggleThemePlaylist() {
-  if (themeMusic) {
-    themeMusic.pause();
-    themeMusic.removeEventListener('ended', playNextThemeTrack);
-    themeMusic = null;
-  }
+  stopThemeTrack();
 
   themePlaylistIndex = (themePlaylistIndex + 1) % THEME_PLAYLISTS.length;
   themeTrackIndex = -1;
@@ -3382,7 +3584,9 @@ document.getElementById('username-input').addEventListener('keydown', e => {
 });
 
 document.addEventListener('pointerdown', startThemeMusic, { once: true });
+document.addEventListener('pointerdown', preloadYouTubeThemePlayer, { once: true });
 document.addEventListener('pointerdown', primeMemberGreetingVoice, { once: true });
+document.addEventListener('keydown', preloadYouTubeThemePlayer, { once: true });
 document.addEventListener('keydown', primeMemberGreetingVoice, { once: true });
 
 async function sendTestGift(giftType) {
