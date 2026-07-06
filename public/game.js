@@ -284,7 +284,6 @@ const THEME_PLAYLISTS = [
     name: 'youtube',
     type: 'youtube',
     tracks: [
-      'https://youtu.be/29yCOFRxo9A?si=5OK3P02YYfUqIfGA',
       'https://youtu.be/oljFUwjeXdI?si=Tfb17tmP5tyD-7EM',
       'https://youtu.be/Y5F4lqcWOc4?si=N1z27hTSUMuAct6j',
       'https://youtu.be/oShPzU54haQ?si=1hTOWYHUmxJ4fUNF',
